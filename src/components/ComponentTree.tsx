@@ -89,6 +89,9 @@ const ComponentNode: React.FC<{
     if (component.type === 'bodytube' && component.children) {
         children.push(...component.children);
     }
+    if (component.type === 'nosecone' && (component as any).children) {
+        children.push(...(component as any).children);
+    }
     if (component.type === 'innertube' && (component as any).children) {
         children.push(...(component as any).children);
     }

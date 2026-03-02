@@ -139,7 +139,8 @@ const SideView: React.FC<{
                     const x = padding + pos.xStart * scale;
                     const sel = comp.id === selectedId;
                     if (comp.type === 'nosecone')
-                        return <NoseCone2D key={comp.id} comp={comp} x={x} centerY={centerY} scale={scale} sel={sel} onClick={() => onSelect(comp.id)} />;
+                        return <NoseCone2D key={comp.id} comp={comp} x={x} centerY={centerY} scale={scale} sel={sel} onClick={() => onSelect(comp.id)}
+                            selectedId={selectedId} onSelect={onSelect} />;
                     if (comp.type === 'bodytube')
                         return <BodyTube2D key={comp.id} comp={comp} x={x} centerY={centerY} scale={scale} sel={sel} onClick={() => onSelect(comp.id)}
                             selectedId={selectedId} onSelect={onSelect} />;
@@ -178,7 +179,8 @@ const SideView: React.FC<{
 /* ---------- NOSE CONE ---------- */
 const NoseCone2D: React.FC<{
     comp: NoseCone; x: number; centerY: number; scale: number; sel: boolean; onClick: () => void;
-}> = ({ comp, x, centerY, scale, sel, onClick }) => {
+    selectedId?: string | null; onSelect?: (id: string) => void;
+}> = ({ comp, x, centerY, scale, sel, onClick, selectedId, onSelect }) => {
     const l = comp.length * scale, r = comp.baseRadius * scale;
     const stroke = sel ? '#3b8eed' : '#8b919c';
     const sw = sel ? 1.8 : 1;
@@ -194,6 +196,10 @@ const NoseCone2D: React.FC<{
                     fill="none" stroke={stroke} strokeWidth={sw * 0.5} strokeDasharray="3,2" opacity={0.45} />
             )}
             {sel && <CLabel x={x + l / 2} y={centerY - r - 18} name={comp.name} color={stroke} />}
+            {/* Render children inside the nose cone */}
+            {comp.children && selectedId != null && onSelect && comp.children.map(child =>
+                renderChild(child, x, l, r, centerY, scale, selectedId, onSelect)
+            )}
         </g>
     );
 };
@@ -264,14 +270,19 @@ function renderChild(
             return (
                 <g key={child.id}>
                     <rect x={childX} y={centerY - itR} width={itL} height={itR * 2}
-                        fill={cStroke} fillOpacity={0.08} stroke={cStroke} strokeWidth={cSW} onClick={clk} style={{ cursor: 'pointer' }} />
+                        fill={cStroke} fillOpacity={0.06} stroke={cStroke} strokeWidth={cSW} strokeDasharray="4,2" onClick={clk} style={{ cursor: 'pointer' }} />
                     {it.children?.map((gc: RocketComponent) => {
                         const gs = gc.id === selectedId, gStroke = gs ? '#3b8eed' : (COMP_COLORS[gc.type] || '#c0392b');
                         const gPos = ('position' in gc && typeof (gc as any).position === 'number') ? (gc as any).position * scale : 0;
                         if (gc.type === 'engineblock') {
                             const ebL = Math.max((gc as any).length * scale, 2);
                             return <rect key={gc.id} x={childX + gPos} y={centerY - itR * 0.85} width={ebL} height={itR * 1.7}
-                                fill={gStroke} fillOpacity={0.15} stroke={gStroke} strokeWidth={gs ? 1.4 : 0.7} onClick={() => onSelect(gc.id)} style={{ cursor: 'pointer' }} />;
+                                fill={gStroke} fillOpacity={0.12} stroke={gStroke} strokeWidth={gs ? 1.4 : 0.7} onClick={() => onSelect(gc.id)} style={{ cursor: 'pointer' }} />;
+                        }
+                        if (gc.type === 'centeringring') {
+                            const crL = Math.max((gc as any).length * scale, 1.5);
+                            return <rect key={gc.id} x={childX + gPos} y={centerY - bodyR * 0.95} width={crL} height={bodyR * 1.9}
+                                fill={gStroke} fillOpacity={0.1} stroke={gStroke} strokeWidth={gs ? 1.2 : 0.6} onClick={() => onSelect(gc.id)} style={{ cursor: 'pointer' }} />;
                         }
                         return null;
                     })}
@@ -279,18 +290,18 @@ function renderChild(
             );
         }
         case 'parachute': {
-            const pw = Math.min(bodyR * 2.5, bodyL * 0.25);
-            const ph = bodyR * 0.7;
+            // Render as compact packed parachute inside the body tube
+            const chute = child as any;
+            const pw = Math.min(bodyR * 1.2, bodyL * 0.08);
+            const ph = bodyR * 0.5;
             return (
                 <g key={child.id} onClick={clk} style={{ cursor: 'pointer' }}>
-                    {/* Canopy dome */}
-                    <path d={`M ${childX},${centerY + ph * 0.15} Q ${childX + pw * 0.5},${centerY - ph} ${childX + pw},${centerY + ph * 0.15}`}
-                        fill={cStroke} fillOpacity={0.12} stroke={cStroke} strokeWidth={cSW} />
-                    {/* Shroud lines */}
-                    <line x1={childX + pw * 0.15} y1={centerY - ph * 0.1} x2={childX + pw * 0.5} y2={centerY + ph * 0.45}
-                        stroke={cStroke} strokeWidth={0.4} opacity={0.5} />
-                    <line x1={childX + pw * 0.85} y1={centerY - ph * 0.1} x2={childX + pw * 0.5} y2={centerY + ph * 0.45}
-                        stroke={cStroke} strokeWidth={0.4} opacity={0.5} />
+                    {/* Packed parachute — dashed rectangle */}
+                    <rect x={childX} y={centerY - ph} width={pw} height={ph * 2}
+                        fill={cStroke} fillOpacity={0.1} stroke={cStroke} strokeWidth={cSW} strokeDasharray="3,2" rx={2} />
+                    {/* Small canopy icon inside */}
+                    <path d={`M ${childX + pw * 0.15},${centerY + ph * 0.1} Q ${childX + pw * 0.5},${centerY - ph * 0.7} ${childX + pw * 0.85},${centerY + ph * 0.1}`}
+                        fill="none" stroke={cStroke} strokeWidth={0.6} opacity={0.5} />
                     {cSel && <CLabel x={childX + pw / 2} y={centerY - bodyR - 18} name={child.name} color={cStroke} mass={getCompMass(child)} />}
                 </g>
             );
@@ -324,14 +335,16 @@ function renderChild(
         case 'engineblock': {
             const ebL = Math.max((child as any).length * scale, 2);
             return <rect key={child.id} x={childX} y={centerY - bodyR * 0.85} width={ebL} height={bodyR * 1.7}
-                fill={cStroke} fillOpacity={0.15} stroke={cStroke} strokeWidth={cSW} onClick={clk} style={{ cursor: 'pointer' }} />;
+                fill={cStroke} fillOpacity={0.1} stroke={cStroke} strokeWidth={cSW} strokeDasharray="3,1.5"
+                onClick={clk} style={{ cursor: 'pointer' }} />;
         }
         case 'centeringring': {
-            const crL = Math.max((child as any).length * scale, 2), crIR = (child as any).innerRadius * scale;
+            const crL = Math.max((child as any).length * scale, 1.5), crIR = (child as any).innerRadius * scale;
             return (
                 <g key={child.id} onClick={clk} style={{ cursor: 'pointer' }}>
-                    <rect x={childX} y={centerY - bodyR * 0.95} width={crL} height={bodyR * 1.9} fill={cStroke} fillOpacity={0.12} stroke={cStroke} strokeWidth={cSW} />
-                    <rect x={childX} y={centerY - crIR} width={crL} height={crIR * 2} fill="#1e2127" stroke="none" />
+                    <rect x={childX} y={centerY - bodyR * 0.95} width={crL} height={bodyR * 1.9}
+                        fill={cStroke} fillOpacity={0.08} stroke={cStroke} strokeWidth={cSW} strokeDasharray="3,1.5" />
+                    {crIR > 0 && <rect x={childX} y={centerY - crIR} width={crL} height={crIR * 2} fill="#1e2127" stroke="none" />}
                 </g>
             );
         }
@@ -346,11 +359,14 @@ function renderChild(
                 fill={cStroke} fillOpacity={0.08} stroke={cStroke} strokeWidth={cSW} strokeDasharray="5,2" onClick={clk} style={{ cursor: 'pointer' }} />;
         }
         case 'massobject': {
-            const moR = (child as any).radius * scale, moL = (child as any).length * scale;
+            const moR = Math.max((child as any).radius * scale, bodyR * 0.25);
+            const moL = Math.max((child as any).length * scale, bodyL * 0.02);
             return (
                 <g key={child.id} onClick={clk} style={{ cursor: 'pointer' }}>
-                    <rect x={childX} y={centerY - moR} width={moL} height={moR * 2} fill={cStroke} fillOpacity={0.12} stroke={cStroke} strokeWidth={cSW} rx={2} />
-                    {cSel && <CLabel x={childX + moL / 2} y={centerY - bodyR - 18} name={child.name} color={cStroke} mass={getCompMass(child)} />}
+                    <rect x={childX} y={centerY - moR} width={moL} height={moR * 2}
+                        fill={cStroke} fillOpacity={0.08} stroke={cStroke} strokeWidth={cSW}
+                        strokeDasharray="3,2" rx={2} />
+                    <CLabel x={childX + moL / 2} y={centerY - bodyR - 14} name={child.name} color={cStroke} mass={getCompMass(child)} />
                 </g>
             );
         }

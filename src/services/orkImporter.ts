@@ -83,6 +83,80 @@ function mapDeployEvent(val: string | null): 'apogee' | 'altitude' | 'timer' {
     return 'apogee'; // default
 }
 
+// ---- Position resolution -------------------------------------------
+
+/**
+ * Get the "length" (axial extent) of a parsed component so we can
+ * resolve position offsets that reference the child's own bottom or middle.
+ */
+function getChildLength(comp: RocketComponent): number {
+    switch (comp.type) {
+        case 'bodytube': return comp.length;
+        case 'nosecone': return comp.length;
+        case 'transition': return comp.length;
+        case 'innertube': return comp.length;
+        case 'engineblock': return comp.length;
+        case 'centeringring': return comp.length;
+        case 'bulkhead': return comp.length;
+        case 'tubecoupler': return comp.length;
+        case 'trapezoidfinset': return comp.rootChord;
+        case 'ellipticalfinset': return comp.rootChord;
+        case 'freeformfinset': return 0;
+        case 'massobject': return comp.length;
+        case 'parachute': return 0;
+        case 'streamer': return 0;
+        case 'shockcord': return 0;
+        case 'launchlug': return comp.length;
+        default: return 0;
+    }
+}
+
+/**
+ * Resolve the OpenRocket axialoffset / position element into a
+ * top-relative position (distance from parent's front to child's front).
+ *
+ * OpenRocket position methods:
+ *   method="top"    → child's FRONT is at parent's FRONT + value
+ *   method="middle" → child's CENTER is at parent's CENTER + value
+ *   method="bottom" → child's BOTTOM is at parent's BOTTOM + value
+ *   method="absolute" → absolute from rocket nose tip (stage-level only)
+ */
+function resolvePosition(el: Element, comp: RocketComponent, parentLength: number): void {
+    const posEl = el.querySelector(':scope > axialoffset') || el.querySelector(':scope > position');
+    if (!posEl) return;
+
+    const method = posEl.getAttribute('method') || posEl.getAttribute('type') || 'top';
+    const posVal = parseFloat(posEl.textContent || '0') || 0;
+    const childLen = getChildLength(comp);
+
+    let topRelative = 0;
+    switch (method) {
+        case 'top':
+            topRelative = posVal;
+            break;
+        case 'middle':
+            // child's center at parent's center + value
+            topRelative = (parentLength - childLen) / 2 + posVal;
+            break;
+        case 'bottom':
+            // child's bottom at parent's bottom + value
+            topRelative = parentLength + posVal - childLen;
+            break;
+        case 'absolute':
+            topRelative = posVal;
+            break;
+        default:
+            topRelative = posVal;
+    }
+
+    // Clamp to valid range (allow slightly past ends for overhang)
+    topRelative = Math.max(0, topRelative);
+
+    if ('position' in comp) {
+        (comp as any).position = topRelative;
+    }
+}
+
 // ---- Component parsers ---------------------------------------------
 
 function parseNoseCone(el: Element): NoseCone {
@@ -105,8 +179,11 @@ function parseNoseCone(el: Element): NoseCone {
     const overMass = getFloat(el, 'overridemass', -1);
     if (overMass > 0) {
         nc.massOverridden = true;
-        (nc as any).overrideMass = overMass;
+        nc.mass = overMass;
     }
+
+    // Parse children (mass components, etc. inside the nose cone)
+    nc.children = parseSubcomponents(el, nc.length);
 
     return nc;
 }
@@ -133,11 +210,11 @@ function parseBodyTube(el: Element): BodyTube {
     const overMass = getFloat(el, 'overridemass', -1);
     if (overMass > 0) {
         bt.massOverridden = true;
-        (bt as any).overrideMass = overMass;
+        bt.mass = overMass;
     }
 
     // Parse children
-    bt.children = parseSubcomponents(el);
+    bt.children = parseSubcomponents(el, bt.length);
 
     return bt;
 }
@@ -177,8 +254,7 @@ function parseTrapezoidFinSet(el: Element): TrapezoidFinSet {
     const mat = parseMaterial(el);
     if (mat) fs.material = mat;
 
-    // Position (relative to parent end)
-    fs.position = getFloat(el, 'position', 0);
+    // Position will be resolved by resolvePosition() in parseSubcomponents
 
     return fs;
 }
@@ -201,18 +277,10 @@ function parseParachute(el: Element): Parachute {
     const overMass = getFloat(el, 'overridemass', -1);
     if (overMass > 0) {
         ch.massOverridden = true;
-        (ch as any).overrideMass = overMass;
+        ch.mass = overMass;
     }
 
-    // Position
-    const posEl = el.querySelector(':scope > position, :scope > axialoffset');
-    if (posEl) {
-        const method = posEl.getAttribute('method') || posEl.getAttribute('type') || 'top';
-        const posVal = parseFloat(posEl.textContent || '0') || 0;
-        if (method === 'top') {
-            ch.position = posVal;
-        }
-    }
+    // Position will be resolved by resolvePosition() in parseSubcomponents
 
     return ch;
 }
@@ -243,14 +311,9 @@ function parseMassComponent(el: Element): MassObject {
     mo.length = getFloat(el, 'packedlength', mo.length);
     mo.radius = getFloat(el, 'packedradius', mo.radius);
     mo.massOverridden = true;
-    (mo as any).overrideMass = mo.componentMass;
+    mo.mass = mo.componentMass;
 
-    // Position
-    const posEl = el.querySelector(':scope > position, :scope > axialoffset');
-    if (posEl) {
-        const posVal = parseFloat(posEl.textContent || '0') || 0;
-        mo.position = Math.abs(posVal);
-    }
+    // Position will be resolved by resolvePosition() in parseSubcomponents
 
     return mo;
 }
@@ -268,7 +331,9 @@ function parseInnerTube(el: Element): InnerTube {
         it.motorOverhang = getFloat(mmEl, 'overhang', 0.005);
     }
 
-    it.children = parseSubcomponents(el);
+    // Position will be resolved by resolvePosition() in parseSubcomponents
+
+    it.children = parseSubcomponents(el, it.length);
     return it;
 }
 
@@ -282,7 +347,7 @@ function parseEngineBlock(el: Element): EngineBlock {
     const overMass = getFloat(el, 'overridemass', -1);
     if (overMass > 0) {
         eb.massOverridden = true;
-        (eb as any).overrideMass = overMass;
+        eb.mass = overMass;
     }
 
     return eb;
@@ -298,7 +363,7 @@ function parseCenteringRing(el: Element): CenteringRing {
     const overMass = getFloat(el, 'overridemass', -1);
     if (overMass > 0) {
         cr.massOverridden = true;
-        (cr as any).overrideMass = overMass;
+        cr.mass = overMass;
     }
 
     return cr;
@@ -330,11 +395,13 @@ function parseTubeCoupler(el: Element): TubeCoupler {
     return tc;
 }
 
-/** Parse <subcomponents> child elements into our component array */
-function parseSubcomponents(parentEl: Element): RocketComponent[] {
+/** Parse <subcomponents> child elements into our component array.
+ *  parentLength is used to resolve position offsets (middle/bottom methods). */
+function parseSubcomponents(parentEl: Element, parentLength?: number): RocketComponent[] {
     const subEl = parentEl.querySelector(':scope > subcomponents');
     if (!subEl) return [];
 
+    const pLen = parentLength ?? getFloat(parentEl, 'length', 0);
     const components: RocketComponent[] = [];
     for (const child of Array.from(subEl.children)) {
         const tag = child.tagName.toLowerCase();
@@ -366,7 +433,11 @@ function parseSubcomponents(parentEl: Element): RocketComponent[] {
                 comp = parseMassComponent(child);
                 break;
         }
-        if (comp) components.push(comp);
+        if (comp) {
+            // Resolve position from axialoffset/position element to top-relative
+            resolvePosition(child, comp, pLen);
+            components.push(comp);
+        }
     }
     return components;
 }

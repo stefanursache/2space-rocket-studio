@@ -232,13 +232,18 @@ export function calculateMassAndCG(
             totalMass += mass;
             momentSum += mass * (x + localCG);
 
-            // Process children
-            if (comp.type === 'bodytube' && comp.children) {
-                for (const child of comp.children) {
+            // Process children (body tube and nose cone)
+            const childList = (comp.type === 'bodytube' && comp.children)
+                ? comp.children
+                : (comp.type === 'nosecone' && (comp as any).children)
+                    ? (comp as any).children
+                    : null;
+            if (childList) {
+                for (const child of childList) {
                     const childMass = getComponentMass(child);
                     const childLocalCG = getComponentCG(child);
 
-                    // Position is from front of parent body tube
+                    // Position is from front of parent
                     const childOffset = ('position' in child && typeof (child as any).position === 'number')
                         ? (child as any).position : 0;
                     const childPos = x + childOffset;

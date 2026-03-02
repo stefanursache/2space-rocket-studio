@@ -51,6 +51,7 @@ export interface NoseCone extends BaseComponent {
     shoulderLength: number;
     shoulderRadius: number;
     shoulderThickness: number;
+    children?: RocketComponent[];
 }
 
 export interface BodyTube extends BaseComponent {
