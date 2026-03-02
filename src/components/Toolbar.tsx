@@ -1,5 +1,6 @@
 import React from 'react';
 import { useStore } from '../store/useStore';
+import { useAuthStore } from '../store/useAuthStore';
 
 export const Toolbar: React.FC = () => {
     const {
@@ -8,6 +9,10 @@ export const Toolbar: React.FC = () => {
         newRocket, loadExampleRocket, setShowMotorSelector, selectedMotor,
         saveRocketToFile, loadRocketFromFile,
     } = useStore();
+
+    const { session, setShowAuthModal, setShowAdminPanel, setShowUserRockets, setShowUserSettings, logout, preferences, isAdminDeviceAuthorized } = useAuthStore();
+
+    const loginBtnColor = preferences?.loginButtonColor || '#3b8eed';
 
     return (
         <div className="toolbar">
@@ -114,6 +119,44 @@ export const Toolbar: React.FC = () => {
                         {selectedMotor ? selectedMotor.designation : 'Motor'}
                     </span>
                 </button>
+
+                <div className="toolbar-separator" />
+
+                {/* Auth section */}
+                {session ? (
+                    <div className="toolbar-auth">
+                        <button className="toolbar-btn rockets-btn" onClick={() => setShowUserRockets(true)} title="My Rockets">
+                            <span className="btn-icon">🚀</span>
+                            <span className="btn-label">My Rockets</span>
+                        </button>
+                        <div className="user-badge" title={`Signed in as ${session.username}`}>
+                            <span className="user-avatar">{session.username[0].toUpperCase()}</span>
+                            <span className="user-name">{session.username}</span>
+                            {session.role === 'admin' && <span className="admin-star">⭐</span>}
+                        </div>
+                        <button className="toolbar-btn settings-btn" onClick={() => setShowUserSettings(true)} title="Account Settings">
+                            <span className="btn-icon">⚙</span>
+                        </button>
+                        {session.role === 'admin' && isAdminDeviceAuthorized && (
+                            <button className="toolbar-btn admin-btn-toolbar" onClick={() => setShowAdminPanel(true)} title="Admin Panel">
+                                <span className="btn-icon">🛡</span>
+                                <span className="btn-label">Admin</span>
+                            </button>
+                        )}
+                        <button className="toolbar-btn logout-btn" onClick={logout} title="Sign out">
+                            <span className="btn-icon">⏻</span>
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        className="toolbar-btn login-btn"
+                        onClick={() => setShowAuthModal(true)}
+                        style={{ background: loginBtnColor, borderColor: loginBtnColor }}
+                    >
+                        <span className="btn-icon">👤</span>
+                        <span className="btn-label">Login / Register</span>
+                    </button>
+                )}
             </div>
         </div>
     );

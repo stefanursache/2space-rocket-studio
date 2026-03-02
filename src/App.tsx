@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { useStore } from './store/useStore';
+import { useAuthStore } from './store/useAuthStore';
 import { Toolbar } from './components/Toolbar';
 import { ComponentToolbar } from './components/ComponentToolbar';
 import { RocketView2D } from './components/RocketView2D';
@@ -10,6 +11,10 @@ import { StabilityInfo } from './components/StabilityInfo';
 import { SimulationPanel } from './components/SimulationPanel';
 import { MotorSelector } from './components/MotorSelector';
 import { AnalysisPanel } from './components/AnalysisPanel';
+import { AuthModal } from './components/AuthModal';
+import { AdminPanel } from './components/AdminPanel';
+import { UserRockets } from './components/UserRockets';
+import { UserSettings } from './components/UserSettings';
 import './App.css';
 
 function App() {
@@ -18,9 +23,12 @@ function App() {
         recalculateStability, initMotors,
     } = useStore();
 
+    const { init: initAuth, showAuthModal, showAdminPanel, showUserRockets, showUserSettings } = useAuthStore();
+
     useEffect(() => {
         recalculateStability();
         initMotors();
+        initAuth();
     }, []);
 
     return (
@@ -70,6 +78,10 @@ function App() {
             )}
 
             {showMotorSelector && <MotorSelector />}
+            {showAuthModal && <AuthModal />}
+            {showAdminPanel && <AdminPanel />}
+            {showUserRockets && <UserRockets />}
+            {showUserSettings && <UserSettings />}
         </div>
     );
 }
