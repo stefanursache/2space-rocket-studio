@@ -2547,64 +2547,166 @@
 .toolbar-auth {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 2px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 3px 4px;
 }
 
-.user-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 6px;
-    background: rgba(59, 142, 237, 0.1);
-    border: 1px solid rgba(59, 142, 237, 0.2);
-    cursor: default;
+.toolbar-auth-divider {
+    width: 1px;
+    height: 18px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 0 2px;
+    flex-shrink: 0;
 }
 
-.user-avatar {
+/* Icon buttons (rockets, admin, logout) */
+.toolbar-auth-icon-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: var(--primary);
-    color: #fff;
-    font-size: 11px;
-    font-weight: 700;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    color: var(--text-secondary);
+    line-height: 1;
+    position: relative;
 }
 
-.user-name {
+.toolbar-auth-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    transform: scale(1.08);
+}
+
+.toolbar-auth-icon-btn:active {
+    transform: scale(0.95);
+}
+
+/* Rockets button accent */
+.toolbar-auth-icon-btn.rockets-btn {
+    color: #81C784;
+}
+
+.toolbar-auth-icon-btn.rockets-btn:hover {
+    background: rgba(76, 175, 80, 0.15);
+}
+
+/* Admin button accent */
+.toolbar-auth-icon-btn.admin-icon-btn:hover {
+    background: rgba(255, 193, 7, 0.12);
+}
+
+/* Logout button */
+.toolbar-auth-icon-btn.logout-icon-btn {
+    opacity: 0.6;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.toolbar-auth-icon-btn.logout-icon-btn:hover {
+    opacity: 1;
+    background: rgba(224, 108, 117, 0.12);
+    color: #e06c75;
+}
+
+/* User button (avatar + name + role) */
+.toolbar-auth-user {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 10px 3px 3px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.toolbar-auth-user:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.toolbar-auth-user:active {
+    transform: scale(0.97);
+}
+
+.toolbar-auth-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #3b8eed, #6366f1);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(59, 142, 237, 0.3);
+}
+
+.toolbar-auth-name {
     font-size: 12px;
     font-weight: 600;
     color: var(--text);
+    white-space: nowrap;
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.admin-star {
-    font-size: 11px;
-    line-height: 1;
+.toolbar-auth-role {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgba(255, 193, 7, 0.12);
+    color: #FFD54F;
+    line-height: 1.2;
 }
 
-.login-btn {
-    background: var(--primary) !important;
-    border-color: var(--primary) !important;
+/* Login / Register button (not logged in) */
+.toolbar-auth-login {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    font-family: inherit;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(59, 142, 237, 0.25);
 }
 
-.login-btn:hover {
-    background: #5aa0f0 !important;
+.toolbar-auth-login:hover {
+    filter: brightness(1.15);
+    box-shadow: 0 4px 16px rgba(59, 142, 237, 0.35);
+    transform: translateY(-1px);
 }
 
-.admin-btn-toolbar .btn-icon {
+.toolbar-auth-login:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 4px rgba(59, 142, 237, 0.2);
+}
+
+.toolbar-auth-login-icon {
     font-size: 13px;
-}
-
-.logout-btn {
-    opacity: 0.7;
-}
-
-.logout-btn:hover {
-    opacity: 1;
-    color: #e06c75 !important;
+    line-height: 1;
 }
 
 /* --- Auth Modal --- */
@@ -3671,24 +3773,6 @@
     font-weight: 600;
     color: var(--text-secondary);
     min-width: 130px;
-}
-
-/* ---- Rockets button in toolbar ---- */
-.rockets-btn {
-    background: rgba(76, 175, 80, 0.1) !important;
-    border-color: rgba(76, 175, 80, 0.3) !important;
-}
-
-.rockets-btn:hover {
-    background: rgba(76, 175, 80, 0.2) !important;
-}
-
-.settings-btn {
-    opacity: 0.7;
-}
-
-.settings-btn:hover {
-    opacity: 1;
 }
 
 /* ---- Admin header left ---- */
