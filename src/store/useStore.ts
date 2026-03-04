@@ -15,15 +15,55 @@ import { importOrkFile, matchMotor, OrkImportResult } from '../services/orkImpor
 
 function computeMotorPosition(rocket: Rocket, motor: Motor | null): number {
     if (!motor) return 0;
-    let rocketEnd = 0;
+    const motorLen = motor.length / 1000; // mm → m
+
+    // Walk through the rocket to find the motor mount and its axial position.
+    // The motor mount can be a body tube or an inner tube with isMotorMount=true.
+    // We return the axial position of the motor FRONT from the nose tip.
+    let x = 0; // running axial position of current top-level component start
     for (const stage of rocket.stages) {
         for (const comp of stage.components) {
-            if (comp.type === 'nosecone') rocketEnd += comp.length;
-            else if (comp.type === 'bodytube') rocketEnd += comp.length;
-            else if (comp.type === 'transition') rocketEnd += comp.length;
+            const compLen = comp.type === 'nosecone' ? comp.length
+                : comp.type === 'bodytube' ? comp.length
+                : comp.type === 'transition' ? comp.length
+                : 0;
+
+            // Check if this top-level component is a motor mount (body tube)
+            if (comp.type === 'bodytube' && comp.isMotorMount) {
+                // Motor aft end aligns with body tube aft end + overhang
+                const mountEnd = x + compLen + (comp.motorOverhang || 0);
+                return mountEnd - motorLen;
+            }
+
+            // Check children for inner tubes that are motor mounts
+            if (comp.type === 'bodytube' && comp.children) {
+                for (const child of comp.children) {
+                    if (child.type === 'innertube' && child.isMotorMount) {
+                        // Inner tube position is relative to parent body tube
+                        const childPos = child.position ?? 0;
+                        const childEnd = x + childPos + child.length + (child.motorOverhang || 0);
+                        return childEnd - motorLen;
+                    }
+                }
+            }
+
+            // Also check nose cone children
+            if (comp.type === 'nosecone' && comp.children) {
+                for (const child of comp.children) {
+                    if (child.type === 'innertube' && child.isMotorMount) {
+                        const childPos = child.position ?? 0;
+                        const childEnd = x + childPos + child.length + (child.motorOverhang || 0);
+                        return childEnd - motorLen;
+                    }
+                }
+            }
+
+            x += compLen;
         }
     }
-    return rocketEnd - motor.length / 1000;
+
+    // Fallback: place motor at the tail end of the rocket
+    return x - motorLen;
 }
 
 interface AppState {
@@ -631,7 +671,7 @@ export const useStore = create<AppState>((set, get) => ({
                     set({
                         rocket,
                         selectedMotor: matchedMotor,
-                        motorPosition: 0,
+                        motorPosition: computeMotorPosition(rocket, matchedMotor),
                         selectedComponentId: null,
                         simulationResults: [],
                         activeSimulationId: null,
