@@ -392,30 +392,30 @@ function trapezoidFinCP(
     bodyRadius: number,
     refArea: number
 ): { cnAlpha: number; cp: number } {
-    const { finCount, rootChord, tipChord, height, sweepLength, thickness } = fin;
+    const { finCount, rootChord, tipChord, height, sweepLength } = fin;
     const s = height; // semi-span
     const Cr = rootChord;
     const Ct = tipChord;
     const Xs = sweepLength;
-    const d = bodyRadius * 2;
-    const r = bodyRadius;
+    const r = bodyRadius; // LOCAL body radius for interference factor
 
-    // Barrowman equations for trapezoidal fins
-    const Af = 0.5 * (Cr + Ct) * s; // single fin planform area
-
-    // Mid-chord sweep
+    // Mid-chord sweep line
     const lm = Math.sqrt(s * s + (Xs + 0.5 * Ct - 0.5 * Cr) ** 2);
 
-    // CNα for a single fin (per radian)
-    const num = 16 * (s / d) ** 2;
-    const den = 1 + Math.sqrt(1 + (2 * lm / (Cr + Ct)) ** 2);
-    const cnAlpha1 = num / den;
+    // CNα for a SINGLE fin, referenced to vehicle reference area
+    // Barrowman: total = 4N(s/d)²/den = Nπs²/(Aref·den) (includes interference)
+    // Decomposed: per-fin isolated = πs²/(Aref·den), then × KfB for body interference
+    // Note: using π (not 2π) since KfB already accounts for body mirror effect
+    const cnAlpha1 = Math.PI * s * s /
+        (refArea * (1 + Math.sqrt(1 + (2 * lm / (Cr + Ct)) ** 2)));
 
-    // Fin-body interference factor (Barrowman)
+    // Fin-body interference factor (Barrowman) — uses LOCAL body radius
     const KfB = 1 + r / (s + r);
-    const cnAlpha = cnAlpha1 * KfB * finCount / 2;
 
-    // CP position of fin
+    // Total CNα for all fins
+    const cnAlpha = cnAlpha1 * KfB * finCount;
+
+    // CP position of fin set
     const xf = Xs * (Cr + 2 * Ct) / (3 * (Cr + Ct)) +
         (1 / 6) * (Cr + Ct - Cr * Ct / (Cr + Ct));
 
@@ -433,17 +433,18 @@ function ellipticalFinCP(
 ): { cnAlpha: number; cp: number } {
     const s = fin.height;
     const Cr = fin.rootChord;
-    const d = bodyRadius * 2;
-    const r = bodyRadius;
+    const r = bodyRadius; // LOCAL body radius for interference factor
 
     // Approximate as trapezoidal with tip chord = 0
     const lm = Math.sqrt(s * s + (0.25 * Cr) ** 2);
-    const num = 16 * (s / d) ** 2;
-    const den = 1 + Math.sqrt(1 + (2 * lm / Cr) ** 2);
-    const cnAlpha1 = num / den;
+
+    // CNα for a SINGLE fin, referenced to vehicle reference area
+    // Using π (not 2π) since KfB already accounts for body mirror effect
+    const cnAlpha1 = Math.PI * s * s /
+        (refArea * (1 + Math.sqrt(1 + (2 * lm / Cr) ** 2)));
 
     const KfB = 1 + r / (s + r);
-    const cnAlpha = cnAlpha1 * KfB * fin.finCount / 2;
+    const cnAlpha = cnAlpha1 * KfB * fin.finCount;
 
     // CP of elliptical fin at about 0.288 * root chord from leading edge
     return {
