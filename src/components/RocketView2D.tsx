@@ -4,17 +4,42 @@ import { getComponentPositions, getMaxRadius, getRocketLength } from '../physics
 import { NoseCone, BodyTube, Transition, TrapezoidFinSet, EllipticalFinSet, FreeformFinSet, Motor, RocketComponent } from '../types/rocket';
 
 /* =====================================================================
-   OpenRocket-style 2D engineering drawing – dark theme
+   2SPACE Rocket Studio – 2D Engineering Blueprint View
+   Refined dark-theme with softer palette and polished details
    ===================================================================== */
 
-const COMP_COLORS: Record<string, string> = {
-    nosecone: '#8b919c', bodytube: '#8b919c', transition: '#8b919c',
-    trapezoidfinset: '#5b7fbf', ellipticalfinset: '#5b7fbf', freeformfinset: '#5b7fbf',
-    innertube: '#d4943a', engineblock: '#c0392b', centeringring: '#8e44ad',
-    bulkhead: '#c0392b', tubecoupler: '#2980b9', parachute: '#27ae60',
-    streamer: '#2ecc71', shockcord: '#e67e22', launchlug: '#7f8c8d', massobject: '#f1c40f',
+/* -- Theme tokens ---------------------------------------------------- */
+const T = {
+    bg: '#13161b',
+    panel: '#191d24',
+    grid: '#1e232c',
+    gridText: '#3a4050',
+    accent: '#4a9ef5',
+    accentDim: '#2a6ec0',
+    sel: '#4a9ef5',
+    center: '#b8306a',
+    extent: '#2e6ab8',
+    body: '#a0a8b8',
+    fins: '#6c9fd4',
+    inner: '#d4a050',
+    engine: '#c44a30',
+    ring: '#9b5cc0',
+    recovery: '#3cba6c',
+    shock: '#e88e30',
+    mass: '#e8c840',
+    muted: '#5c6370',
+    dimLine: '#3b4754',
+    font: "'JetBrains Mono', monospace",
 };
-const FONT = "'JetBrains Mono', monospace";
+
+const COMP_COLORS: Record<string, string> = {
+    nosecone: T.body, bodytube: T.body, transition: T.body,
+    trapezoidfinset: T.fins, ellipticalfinset: T.fins, freeformfinset: T.fins,
+    innertube: T.inner, engineblock: T.engine, centeringring: T.ring,
+    bulkhead: T.engine, tubecoupler: '#3a8ec0', parachute: T.recovery,
+    streamer: '#40c878', shockcord: T.shock, launchlug: '#7f8c8d', massobject: T.mass,
+};
+const FONT = T.font;
 
 export const RocketView2D: React.FC = () => {
     const { rocket, viewOrientation, zoom, stability, selectedComponentId, selectComponent, selectedMotor, motorPosition } = useStore();
@@ -26,7 +51,7 @@ export const RocketView2D: React.FC = () => {
         return (
             <div className="rocket-view-2d">
                 <svg width="100%" height="100%" viewBox="-50 -50 100 100">
-                    <text x="0" y="0" textAnchor="middle" fill="#5c6370" fontSize="4" fontFamily={FONT}>
+                    <text x="0" y="0" textAnchor="middle" fill={T.muted} fontSize="4" fontFamily={FONT}>
                         Add components to see the rocket
                     </text>
                 </svg>
@@ -59,20 +84,20 @@ const MmGrid: React.FC<{
     for (let mm = 0; mm <= maxMmX; mm += mmSpacing) {
         const x = padding + (mm / 1000) * scale;
         if (x > width - 5) break;
-        els.push(<line key={`v${mm}`} x1={x} y1={20} x2={x} y2={height - 5} stroke="#282d36" strokeWidth={0.5} />);
-        els.push(<text key={`vt${mm}`} x={x} y={14} textAnchor="middle" fontSize="7.5" fill="#4a5060" fontFamily={FONT}>{mm} mm</text>);
+        els.push(<line key={`v${mm}`} x1={x} y1={20} x2={x} y2={height - 5} stroke={T.grid} strokeWidth={0.5} />);
+        els.push(<text key={`vt${mm}`} x={x} y={14} textAnchor="middle" fontSize="6.5" fill={T.gridText} fontFamily={FONT}>{mm}</text>);
     }
     for (let mm = mmSpacing; mm <= maxMmY; mm += mmSpacing) {
         const dy = (mm / 1000) * scale;
         const y1 = centerY - dy; const y2 = centerY + dy;
         if (y1 > 20) {
-            els.push(<line key={`ht${mm}`} x1={5} y1={y1} x2={width - 5} y2={y1} stroke="#282d36" strokeWidth={0.5} />);
-            els.push(<text key={`htt${mm}`} x={9} y={y1 + 3} fontSize="7.5" fill="#4a5060" fontFamily={FONT}>{mm} mm</text>);
+            els.push(<line key={`ht${mm}`} x1={5} y1={y1} x2={width - 5} y2={y1} stroke={T.grid} strokeWidth={0.5} />);
+            els.push(<text key={`htt${mm}`} x={9} y={y1 + 3} fontSize="6.5" fill={T.gridText} fontFamily={FONT}>{mm}</text>);
         }
         if (y2 < height - 20)
-            els.push(<line key={`hb${mm}`} x1={5} y1={y2} x2={width - 5} y2={y2} stroke="#282d36" strokeWidth={0.5} />);
+            els.push(<line key={`hb${mm}`} x1={5} y1={y2} x2={width - 5} y2={y2} stroke={T.grid} strokeWidth={0.5} />);
     }
-    return <g>{els}</g>;
+    return <g opacity={0.7}>{els}</g>;
 };
 
 /* ---------- helper: max fin height ---------- */
@@ -107,30 +132,43 @@ const SideView: React.FC<{
     return (
         <div className="rocket-view-2d">
             <svg width="100%" height="100%" viewBox={`0 0 ${viewWidth} ${viewHeight}`} preserveAspectRatio="xMidYMid meet">
-                <rect width="100%" height="100%" fill="#1e2127" />
+                <rect width="100%" height="100%" fill={T.bg} />
+
+                {/* Subtle radial vignette overlay */}
+                <defs>
+                    <radialGradient id="vignette" cx="50%" cy="50%" r="60%">
+                        <stop offset="0%" stopColor={T.bg} stopOpacity="0" />
+                        <stop offset="100%" stopColor="#000000" stopOpacity="0.35" />
+                    </radialGradient>
+                    <linearGradient id="nose-fill" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="#b0b8c8" stopOpacity="0.04" />
+                        <stop offset="100%" stopColor={T.body} stopOpacity="0.14" />
+                    </linearGradient>
+                    <linearGradient id="body-fill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#ffffff" stopOpacity="0.05" />
+                        <stop offset="100%" stopColor="#000000" stopOpacity="0.02" />
+                    </linearGradient>
+                    <filter id="sel-glow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blur" />
+                        <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.29  0 0 0 0 0.62  0 0 0 0 0.96  0 0 0 0.45 0" />
+                        <feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge>
+                    </filter>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#vignette)" />
+
                 <MmGrid width={viewWidth} height={viewHeight} scale={scale} padding={padding} centerY={centerY}
                     totalLengthMm={totalLength * 1000}
                     maxRadiusMm={Math.max(maxRadius, getMaxFinHeight(rocket) + maxRadius) * 1000} />
-                <defs>
-                    <linearGradient id="nose-fill" x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0%" stopColor="#aab0ba" stopOpacity="0.05" />
-                        <stop offset="100%" stopColor="#8b919c" stopOpacity="0.18" />
-                    </linearGradient>
-                    <linearGradient id="body-fill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#ffffff" stopOpacity="0.06" />
-                        <stop offset="100%" stopColor="#000000" stopOpacity="0.02" />
-                    </linearGradient>
-                </defs>
 
-                {/* Center line — magenta, subtle */}
+                {/* Center line — dashed, magenta-tinted */}
                 <line x1={padding - 8} y1={centerY} x2={padding + totalLength * scale + 8} y2={centerY}
-                    stroke="#c0396e" strokeWidth="0.5" opacity={0.35} />
+                    stroke={T.center} strokeWidth="0.5" opacity={0.3} strokeDasharray="8,4" />
                 {/* Body extent lines — blue, very subtle */}
                 {maxRadius > 0 && <>
                     <line x1={padding} y1={centerY - maxRadius * scale} x2={padding + totalLength * scale} y2={centerY - maxRadius * scale}
-                        stroke="#3b7dd8" strokeWidth="0.4" opacity={0.2} />
+                        stroke={T.extent} strokeWidth="0.4" opacity={0.15} strokeDasharray="4,3" />
                     <line x1={padding} y1={centerY + maxRadius * scale} x2={padding + totalLength * scale} y2={centerY + maxRadius * scale}
-                        stroke="#3b7dd8" strokeWidth="0.4" opacity={0.2} />
+                        stroke={T.extent} strokeWidth="0.4" opacity={0.15} strokeDasharray="4,3" />
                 </>}
 
                 {/* Components */}
@@ -170,7 +208,7 @@ const SideView: React.FC<{
                     centerY={centerY} maxR={maxRadius * scale + finH} />
 
                 {/* Color legend */}
-                <Legend x={viewWidth - 95} y={28} />
+                <Legend x={viewWidth - 105} y={28} />
             </svg>
         </div>
     );
@@ -182,21 +220,20 @@ const NoseCone2D: React.FC<{
     selectedId?: string | null; onSelect?: (id: string) => void;
 }> = ({ comp, x, centerY, scale, sel, onClick, selectedId, onSelect }) => {
     const l = comp.length * scale, r = comp.baseRadius * scale;
-    const stroke = sel ? '#3b8eed' : '#8b919c';
-    const sw = sel ? 1.8 : 1;
+    const stroke = sel ? T.sel : T.body;
+    const sw = sel ? 1.6 : 0.9;
     const pts = noseProfile(comp, l, r);
     const top = pts.map(([px, py]) => `${x + px},${centerY - py}`);
     const bot = [...pts].reverse().map(([px, py]) => `${x + px},${centerY + py}`);
 
     return (
-        <g onClick={onClick} style={{ cursor: 'pointer' }}>
+        <g onClick={onClick} style={{ cursor: 'pointer' }} filter={sel ? 'url(#sel-glow)' : undefined}>
             <polygon points={[...top, ...bot].join(' ')} fill="url(#nose-fill)" stroke={stroke} strokeWidth={sw} strokeLinejoin="round" />
             {comp.shoulderLength > 0 && comp.shoulderRadius > 0 && (
                 <rect x={x + l} y={centerY - comp.shoulderRadius * scale} width={comp.shoulderLength * scale} height={comp.shoulderRadius * scale * 2}
-                    fill="none" stroke={stroke} strokeWidth={sw * 0.5} strokeDasharray="3,2" opacity={0.45} />
+                    fill="none" stroke={stroke} strokeWidth={sw * 0.5} strokeDasharray="3,2" opacity={0.4} />
             )}
             {sel && <CLabel x={x + l / 2} y={centerY - r - 18} name={comp.name} color={stroke} />}
-            {/* Render children inside the nose cone */}
             {comp.children && selectedId != null && onSelect && comp.children.map(child =>
                 renderChild(child, x, l, r, centerY, scale, selectedId, onSelect)
             )}
@@ -206,8 +243,9 @@ const NoseCone2D: React.FC<{
 
 function noseProfile(comp: NoseCone, l: number, r: number): [number, number][] {
     const pts: [number, number][] = [];
-    for (let i = 0; i <= 32; i++) {
-        const t = i / 32, xp = t * l;
+    const N = 40;
+    for (let i = 0; i <= N; i++) {
+        const t = i / N, xp = t * l;
         let yp: number;
         switch (comp.shape) {
             case 'conical': yp = r * t; break;
@@ -229,16 +267,17 @@ const BodyTube2D: React.FC<{
     selectedId: string | null; onSelect: (id: string) => void;
 }> = ({ comp, x, centerY, scale, sel, onClick, selectedId, onSelect }) => {
     const l = comp.length * scale, r = comp.outerRadius * scale, ir = comp.innerRadius * scale;
-    const stroke = sel ? '#3b8eed' : '#8b919c';
-    const sw = sel ? 1.8 : 1;
+    const stroke = sel ? T.sel : T.body;
+    const sw = sel ? 1.6 : 0.9;
 
     return (
         <g>
-            <rect x={x} y={centerY - r} width={l} height={r * 2}
-                fill="url(#body-fill)" stroke={stroke} strokeWidth={sw} onClick={onClick} style={{ cursor: 'pointer' }} />
+            <rect x={x} y={centerY - r} width={l} height={r * 2} rx={0.5}
+                fill="url(#body-fill)" stroke={stroke} strokeWidth={sw} onClick={onClick} style={{ cursor: 'pointer' }}
+                filter={sel ? 'url(#sel-glow)' : undefined} />
             {ir > 0 && ir < r && (
                 <rect x={x} y={centerY - ir} width={l} height={ir * 2}
-                    fill="none" stroke="#3b4754" strokeWidth={0.4} strokeDasharray="3,3" pointerEvents="none" />
+                    fill="none" stroke={T.dimLine} strokeWidth={0.35} strokeDasharray="3,3" pointerEvents="none" />
             )}
             {comp.children?.map(child => renderChild(child, x, l, r, centerY, scale, selectedId, onSelect))}
         </g>
@@ -251,8 +290,8 @@ function renderChild(
     centerY: number, scale: number, selectedId: string | null, onSelect: (id: string) => void
 ): React.ReactElement | null {
     const cSel = child.id === selectedId;
-    const cStroke = cSel ? '#3b8eed' : (COMP_COLORS[child.type] || '#8b919c');
-    const cSW = cSel ? 1.6 : 0.9;
+    const cStroke = cSel ? T.sel : (COMP_COLORS[child.type] || T.body);
+    const cSW = cSel ? 1.4 : 0.8;
     const childPos = ('position' in child && typeof (child as any).position === 'number') ? (child as any).position * scale : 0;
     const childX = bodyX + childPos;
     const clk = () => onSelect(child.id);
@@ -270,9 +309,9 @@ function renderChild(
             return (
                 <g key={child.id}>
                     <rect x={childX} y={centerY - itR} width={itL} height={itR * 2}
-                        fill={cStroke} fillOpacity={0.06} stroke={cStroke} strokeWidth={cSW} strokeDasharray="4,2" onClick={clk} style={{ cursor: 'pointer' }} />
+                        fill={cStroke} fillOpacity={0.05} stroke={cStroke} strokeWidth={cSW} strokeDasharray="4,2" onClick={clk} style={{ cursor: 'pointer' }} />
                     {it.children?.map((gc: RocketComponent) => {
-                        const gs = gc.id === selectedId, gStroke = gs ? '#3b8eed' : (COMP_COLORS[gc.type] || '#c0392b');
+                        const gs = gc.id === selectedId, gStroke = gs ? T.sel : (COMP_COLORS[gc.type] || T.engine);
                         const gPos = ('position' in gc && typeof (gc as any).position === 'number') ? (gc as any).position * scale : 0;
                         if (gc.type === 'engineblock') {
                             const ebL = Math.max((gc as any).length * scale, 2);
@@ -344,7 +383,7 @@ function renderChild(
                 <g key={child.id} onClick={clk} style={{ cursor: 'pointer' }}>
                     <rect x={childX} y={centerY - bodyR * 0.95} width={crL} height={bodyR * 1.9}
                         fill={cStroke} fillOpacity={0.08} stroke={cStroke} strokeWidth={cSW} strokeDasharray="3,1.5" />
-                    {crIR > 0 && <rect x={childX} y={centerY - crIR} width={crL} height={crIR * 2} fill="#1e2127" stroke="none" />}
+                    {crIR > 0 && <rect x={childX} y={centerY - crIR} width={crL} height={crIR * 2} fill={T.bg} stroke="none" />}
                 </g>
             );
         }
@@ -377,32 +416,35 @@ function renderChild(
 /* ---------- COMPONENT LABEL ---------- */
 const CLabel: React.FC<{ x: number; y: number; name: string; color: string; mass?: number }> = ({ x, y, name, color, mass }) => (
     <g pointerEvents="none">
-        <text x={x} y={y} textAnchor="middle" fontSize="7.5" fill={color} fontFamily={FONT} fontWeight="500" opacity={0.8}>{name}</text>
-        {mass !== undefined && <text x={x} y={y + 9} textAnchor="middle" fontSize="6.5" fill="#5c6370" fontFamily={FONT} opacity={0.6}>{(mass * 1000).toFixed(1)} g</text>}
+        <rect x={x - 28} y={y - 9} width={56} height={13} rx={6} fill={T.bg} fillOpacity={0.85} stroke={color} strokeWidth={0.3} strokeOpacity={0.3} />
+        <text x={x} y={y} textAnchor="middle" fontSize="7" fill={color} fontFamily={FONT} fontWeight="500" opacity={0.85}>{name}</text>
+        {mass !== undefined && <text x={x} y={y + 12} textAnchor="middle" fontSize="6" fill={T.muted} fontFamily={FONT} opacity={0.6}>{(mass * 1000).toFixed(1)} g</text>}
     </g>
 );
 
 /* ---------- LEGEND ---------- */
 const Legend: React.FC<{ x: number; y: number }> = ({ x, y }) => {
     const items = [
-        { color: '#8b919c', label: 'Body / Nose' },
-        { color: '#5b7fbf', label: 'Fins' },
-        { color: '#d4943a', label: 'Inner Tube' },
-        { color: '#c0392b', label: 'Eng. Block' },
-        { color: '#8e44ad', label: 'C-Ring' },
-        { color: '#27ae60', label: 'Recovery' },
-        { color: '#e67e22', label: 'Shock / Motor' },
-        { color: '#f1c40f', label: 'Mass' },
+        { color: T.body, label: 'Body / Nose' },
+        { color: T.fins, label: 'Fins' },
+        { color: T.inner, label: 'Inner Tube' },
+        { color: T.engine, label: 'Eng. Block' },
+        { color: T.ring, label: 'C-Ring' },
+        { color: T.recovery, label: 'Recovery' },
+        { color: T.shock, label: 'Shock / Motor' },
+        { color: T.mass, label: 'Mass' },
     ];
-    const lh = 11, pw = 80, ph = items.length * lh + 8;
+    const lh = 12, pw = 92, titleH = 16, ph = items.length * lh + titleH + 8;
     return (
-        <g opacity={0.6}>
-            <rect x={x} y={y} width={pw} height={ph} rx={3} fill="#1a1d23" stroke="#2a2f38" strokeWidth={0.5} />
+        <g opacity={0.65}>
+            <rect x={x} y={y} width={pw} height={ph} rx={5} fill={T.panel} stroke={T.grid} strokeWidth={0.6} />
+            <text x={x + pw / 2} y={y + 12} textAnchor="middle" fontSize="5.5" fill={T.gridText} fontFamily={FONT}
+                fontWeight="600" letterSpacing="1.5">LEGEND</text>
+            <line x1={x + 6} y1={y + titleH} x2={x + pw - 6} y2={y + titleH} stroke={T.grid} strokeWidth={0.4} />
             {items.map((it, i) => (
                 <g key={it.label}>
-                    <rect x={x + 5} y={y + 4 + i * lh} width={7} height={7} rx={1}
-                        fill={it.color} fillOpacity={0.25} stroke={it.color} strokeWidth={0.6} />
-                    <text x={x + 16} y={y + 10.5 + i * lh} fontSize="6" fill="#8b919c" fontFamily={FONT}>{it.label}</text>
+                    <circle cx={x + 10} cy={y + titleH + 7 + i * lh} r={3} fill={it.color} fillOpacity={0.3} stroke={it.color} strokeWidth={0.6} />
+                    <text x={x + 18} y={y + titleH + 10 + i * lh} fontSize="6" fill={T.body} fontFamily={FONT} opacity={0.8}>{it.label}</text>
                 </g>
             ))}
         </g>
@@ -417,15 +459,15 @@ const TrapFin2D: React.FC<{
 }> = ({ comp, bodyX, bodyLength, bodyRadius, centerY, scale, stroke, strokeWidth, onClick, childPos, sel }) => {
     const finX = childPos !== undefined ? bodyX + childPos : bodyX + bodyLength - comp.rootChord * scale;
     const rc = comp.rootChord * scale, tc = comp.tipChord * scale, h = comp.height * scale, sw = comp.sweepLength * scale;
-    const fill = sel ? 'rgba(59,142,237,0.06)' : 'none';
+    const fill = sel ? 'rgba(74,158,245,0.06)' : 'none';
     return (
-        <g onClick={onClick} style={{ cursor: 'pointer' }}>
+        <g onClick={onClick} style={{ cursor: 'pointer' }} filter={sel ? 'url(#sel-glow)' : undefined}>
             <polygon points={`${finX},${centerY - bodyRadius} ${finX + sw},${centerY - bodyRadius - h} ${finX + sw + tc},${centerY - bodyRadius - h} ${finX + rc},${centerY - bodyRadius}`}
                 fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round" />
             <polygon points={`${finX},${centerY + bodyRadius} ${finX + sw},${centerY + bodyRadius + h} ${finX + sw + tc},${centerY + bodyRadius + h} ${finX + rc},${centerY + bodyRadius}`}
                 fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round" />
             {comp.finCount >= 4 && <line x1={finX} y1={centerY} x2={finX + sw + tc / 2} y2={centerY}
-                stroke={stroke} strokeWidth={comp.thickness * scale * 2} opacity={0.3} />}
+                stroke={stroke} strokeWidth={comp.thickness * scale * 2} opacity={0.25} />}
         </g>
     );
 };
@@ -470,12 +512,12 @@ const Motor2D: React.FC<{ motor: Motor; motorPosition: number; scale: number; pa
     const mx = padding + motorPosition * scale, nzLen = mLen * 0.12, nzR = mR * 0.5, nzX = mx + mLen;
     return (
         <g>
-            <rect x={mx} y={centerY - mR} width={mLen} height={mR * 2} fill="#e67e22" fillOpacity={0.15} stroke="#e67e22" strokeWidth={0.9} rx={1} />
+            <rect x={mx} y={centerY - mR} width={mLen} height={mR * 2} fill={T.shock} fillOpacity={0.12} stroke={T.shock} strokeWidth={0.8} rx={1.5} />
             <rect x={mx + 2} y={centerY - mR + 2} width={Math.max(0, mLen - nzLen - 4)} height={Math.max(0, mR * 2 - 4)}
-                fill="#8B4513" fillOpacity={0.12} stroke="none" rx={1} />
+                fill="#8B4513" fillOpacity={0.1} stroke="none" rx={1} />
             <polygon points={`${nzX},${centerY - mR} ${nzX + nzLen},${centerY - nzR} ${nzX + nzLen},${centerY + nzR} ${nzX},${centerY + mR}`}
-                fill="#555" fillOpacity={0.25} stroke="#e67e22" strokeWidth={0.6} />
-            <text x={mx + mLen / 2} y={centerY + mR + 16} textAnchor="middle" fontSize="6.5" fill="#e67e22" fontFamily={FONT} fontWeight="600" opacity={0.65}>{motor.designation}</text>
+                fill="#555" fillOpacity={0.2} stroke={T.shock} strokeWidth={0.5} />
+            <text x={mx + mLen / 2} y={centerY + mR + 16} textAnchor="middle" fontSize="6" fill={T.shock} fontFamily={FONT} fontWeight="600" opacity={0.6}>{motor.designation}</text>
         </g>
     );
 };
@@ -485,9 +527,10 @@ const Transition2D: React.FC<{
     comp: Transition; x: number; centerY: number; scale: number; sel: boolean; onClick: () => void;
 }> = ({ comp, x, centerY, scale, sel, onClick }) => {
     const l = comp.length * scale, r1 = comp.foreRadius * scale, r2 = comp.aftRadius * scale;
-    const stroke = sel ? '#3b8eed' : '#8b919c';
+    const stroke = sel ? T.sel : T.body;
     return <polygon points={`${x},${centerY - r1} ${x + l},${centerY - r2} ${x + l},${centerY + r2} ${x},${centerY + r1}`}
-        fill="url(#body-fill)" stroke={stroke} strokeWidth={sel ? 1.8 : 1} onClick={onClick} style={{ cursor: 'pointer' }} />;
+        fill="url(#body-fill)" stroke={stroke} strokeWidth={sel ? 1.6 : 0.9} onClick={onClick} style={{ cursor: 'pointer' }}
+        filter={sel ? 'url(#sel-glow)' : undefined} />;
 };
 
 /* ---------- CG MARKER — half-filled circle ---------- */
@@ -496,11 +539,11 @@ const CGMarker: React.FC<{ x: number; centerY: number; maxR: number }> = ({ x, c
     const labelY = centerY - maxR - 20;
     return (
         <g>
-            {/* Short tick above & below body */}
-            <line x1={x} y1={centerY - maxR - 4} x2={x} y2={labelY + 10} stroke="#3b8eed" strokeWidth="0.4" strokeDasharray="3,2" opacity={0.35} />
-            <circle cx={x} cy={centerY} r={r} fill="none" stroke="#3b8eed" strokeWidth={1.2} />
-            <path d={`M ${x} ${centerY - r} A ${r} ${r} 0 0 0 ${x} ${centerY + r} Z`} fill="#3b8eed" opacity={0.8} />
-            <text x={x} y={labelY} textAnchor="middle" fontSize="7.5" fill="#3b8eed" fontWeight="bold" fontFamily={FONT}>CG</text>
+            <line x1={x} y1={centerY - maxR - 4} x2={x} y2={labelY + 10} stroke={T.accent} strokeWidth="0.4" strokeDasharray="3,2" opacity={0.3} />
+            <circle cx={x} cy={centerY} r={r} fill="none" stroke={T.accent} strokeWidth={1.1} />
+            <path d={`M ${x} ${centerY - r} A ${r} ${r} 0 0 0 ${x} ${centerY + r} Z`} fill={T.accent} opacity={0.75} />
+            <rect x={x - 10} y={labelY - 9} width={20} height={13} rx={4} fill={T.bg} fillOpacity={0.85} stroke={T.accent} strokeWidth={0.3} strokeOpacity={0.4} />
+            <text x={x} y={labelY} textAnchor="middle" fontSize="7" fill={T.accent} fontWeight="bold" fontFamily={FONT}>CG</text>
         </g>
     );
 };
@@ -511,12 +554,12 @@ const CPMarker: React.FC<{ x: number; centerY: number; maxR: number }> = ({ x, c
     const labelY = centerY + maxR + 28;
     return (
         <g>
-            {/* Short tick below body */}
-            <line x1={x} y1={centerY + maxR + 4} x2={x} y2={labelY - 8} stroke="#cc3333" strokeWidth="0.4" strokeDasharray="3,2" opacity={0.35} />
-            <circle cx={x} cy={centerY} r={r} fill="none" stroke="#cc3333" strokeWidth={1.2} />
-            <line x1={x - r} y1={centerY} x2={x + r} y2={centerY} stroke="#cc3333" strokeWidth={1} />
-            <line x1={x} y1={centerY - r} x2={x} y2={centerY + r} stroke="#cc3333" strokeWidth={1} />
-            <text x={x} y={labelY} textAnchor="middle" fontSize="7.5" fill="#cc3333" fontWeight="bold" fontFamily={FONT}>CP</text>
+            <line x1={x} y1={centerY + maxR + 4} x2={x} y2={labelY - 8} stroke="#cc3333" strokeWidth="0.4" strokeDasharray="3,2" opacity={0.3} />
+            <circle cx={x} cy={centerY} r={r} fill="none" stroke="#cc3333" strokeWidth={1.1} />
+            <line x1={x - r} y1={centerY} x2={x + r} y2={centerY} stroke="#cc3333" strokeWidth={0.9} />
+            <line x1={x} y1={centerY - r} x2={x} y2={centerY + r} stroke="#cc3333" strokeWidth={0.9} />
+            <rect x={x - 10} y={labelY - 9} width={20} height={13} rx={4} fill={T.bg} fillOpacity={0.85} stroke="#cc3333" strokeWidth={0.3} strokeOpacity={0.4} />
+            <text x={x} y={labelY} textAnchor="middle" fontSize="7" fill="#cc3333" fontWeight="bold" fontFamily={FONT}>CP</text>
         </g>
     );
 };
@@ -524,27 +567,36 @@ const CPMarker: React.FC<{ x: number; centerY: number; maxR: number }> = ({ x, c
 /* ---------- DIAMETER CALLOUT ---------- */
 const DiameterCallout: React.FC<{ x: number; centerY: number; radius: number; diameterMm: number }> = ({ x, centerY, radius, diameterMm }) => {
     const ax = x + 6;
+    const label = `\u00D8 ${diameterMm.toFixed(0)} mm`;
+    const labelW = label.length * 4.2 + 8;
     return (
         <g>
-            <line x1={ax} y1={centerY - radius} x2={ax} y2={centerY + radius} stroke="#5c6370" strokeWidth={0.5} />
-            <polygon points={`${ax},${centerY - radius} ${ax - 2},${centerY - radius + 4} ${ax + 2},${centerY - radius + 4}`} fill="#5c6370" />
-            <polygon points={`${ax},${centerY + radius} ${ax - 2},${centerY + radius - 4} ${ax + 2},${centerY + radius - 4}`} fill="#5c6370" />
-            <text x={ax + 5} y={centerY + 3} fontSize="7" fill="#6b7380" fontFamily={FONT}>Ø {diameterMm.toFixed(0)} mm</text>
+            <line x1={ax} y1={centerY - radius} x2={ax} y2={centerY + radius} stroke={T.muted} strokeWidth={0.4} />
+            <polygon points={`${ax},${centerY - radius} ${ax - 2},${centerY - radius + 4} ${ax + 2},${centerY - radius + 4}`} fill={T.muted} />
+            <polygon points={`${ax},${centerY + radius} ${ax - 2},${centerY + radius - 4} ${ax + 2},${centerY + radius - 4}`} fill={T.muted} />
+            <rect x={ax + 4} y={centerY - 7} width={labelW} height={14} rx={4} fill={T.bg} fillOpacity={0.8} stroke={T.dimLine} strokeWidth={0.3} />
+            <text x={ax + 4 + labelW / 2} y={centerY + 3} textAnchor="middle" fontSize="6.5" fill={T.muted} fontFamily={FONT}>{label}</text>
         </g>
     );
 };
 
 /* ---------- LENGTH DIMENSION ---------- */
-const LengthDimension: React.FC<{ x1: number; x2: number; y: number; lengthMm: number; centerY: number; maxR: number }> = ({ x1, x2, y, lengthMm, centerY, maxR }) => (
-    <g>
-        <line x1={x1} y1={centerY + maxR + 6} x2={x1} y2={y + 3} stroke="#3b4754" strokeWidth={0.4} strokeDasharray="2,2" />
-        <line x1={x2} y1={centerY + maxR + 6} x2={x2} y2={y + 3} stroke="#3b4754" strokeWidth={0.4} strokeDasharray="2,2" />
-        <line x1={x1} y1={y} x2={x2} y2={y} stroke="#5c6370" strokeWidth={0.6} />
-        <polygon points={`${x1},${y} ${x1 + 5},${y - 2.5} ${x1 + 5},${y + 2.5}`} fill="#5c6370" />
-        <polygon points={`${x2},${y} ${x2 - 5},${y - 2.5} ${x2 - 5},${y + 2.5}`} fill="#5c6370" />
-        <text x={(x1 + x2) / 2} y={y - 5} textAnchor="middle" fontSize="8" fill="#6b7380" fontFamily={FONT} fontWeight="500">{lengthMm.toFixed(0)} mm</text>
-    </g>
-);
+const LengthDimension: React.FC<{ x1: number; x2: number; y: number; lengthMm: number; centerY: number; maxR: number }> = ({ x1, x2, y, lengthMm, centerY, maxR }) => {
+    const midX = (x1 + x2) / 2;
+    const label = `${lengthMm.toFixed(0)} mm`;
+    const labelW = label.length * 4.5 + 10;
+    return (
+        <g>
+            <line x1={x1} y1={centerY + maxR + 6} x2={x1} y2={y + 3} stroke={T.dimLine} strokeWidth={0.35} strokeDasharray="2,2" />
+            <line x1={x2} y1={centerY + maxR + 6} x2={x2} y2={y + 3} stroke={T.dimLine} strokeWidth={0.35} strokeDasharray="2,2" />
+            <line x1={x1} y1={y} x2={x2} y2={y} stroke={T.muted} strokeWidth={0.5} />
+            <polygon points={`${x1},${y} ${x1 + 5},${y - 2.5} ${x1 + 5},${y + 2.5}`} fill={T.muted} />
+            <polygon points={`${x2},${y} ${x2 - 5},${y - 2.5} ${x2 - 5},${y + 2.5}`} fill={T.muted} />
+            <rect x={midX - labelW / 2} y={y - 13} width={labelW} height={14} rx={4} fill={T.bg} fillOpacity={0.85} stroke={T.dimLine} strokeWidth={0.3} />
+            <text x={midX} y={y - 4} textAnchor="middle" fontSize="7.5" fill={T.muted} fontFamily={FONT} fontWeight="500">{label}</text>
+        </g>
+    );
+};
 
 /* ---------- BACK VIEW ---------- */
 const BackView: React.FC<{ positions: any[]; rocket: any; maxRadius: number; scale: number }> = ({ positions, rocket, maxRadius, scale }) => {
@@ -562,10 +614,10 @@ const BackView: React.FC<{ positions: any[]; rocket: any; maxRadius: number; sca
     return (
         <div className="rocket-view-2d">
             <svg width="100%" height="100%" viewBox={`0 0 ${viewSize} ${viewSize}`} preserveAspectRatio="xMidYMid meet">
-                <rect width="100%" height="100%" fill="#1e2127" />
-                <circle cx={cx} cy={cy} r={bodyR} fill="none" stroke="#8b919c" strokeWidth={1} />
+                <rect width="100%" height="100%" fill={T.bg} />
+                <circle cx={cx} cy={cy} r={bodyR} fill="none" stroke={T.body} strokeWidth={0.9} />
                 {lastBody.component.type === 'bodytube' && lastBody.component.children?.map((child: any) =>
-                    child.type === 'innertube' ? <circle key={child.id} cx={cx} cy={cy} r={child.outerRadius * scale} fill="none" stroke="#cc5555" strokeWidth={0.8} /> : null
+                    child.type === 'innertube' ? <circle key={child.id} cx={cx} cy={cy} r={child.outerRadius * scale} fill="none" stroke={T.inner} strokeWidth={0.7} opacity={0.7} /> : null
                 )}
                 {fins.map(fin => {
                     const els = [];
@@ -574,15 +626,15 @@ const BackView: React.FC<{ positions: any[]; rocket: any; maxRadius: number; sca
                         const a = (i * 2 * Math.PI) / fin.finCount - Math.PI / 2;
                         els.push(<line key={`${fin.id}-${i}`} x1={cx + bodyR * Math.cos(a)} y1={cy + bodyR * Math.sin(a)}
                             x2={cx + (bodyR + h) * Math.cos(a)} y2={cy + (bodyR + h) * Math.sin(a)}
-                            stroke="#5b7fbf" strokeWidth={fin.thickness * scale * 3 + 1.5} strokeLinecap="round" />);
+                            stroke={T.fins} strokeWidth={fin.thickness * scale * 3 + 1.5} strokeLinecap="round" />);
                     }
                     return <g key={fin.id}>{els}</g>;
                 })}
                 {lastBody.component.type === 'bodytube' && lastBody.component.children?.map((child: any) =>
                     child.type === 'launchlug' ? <circle key={child.id} cx={cx} cy={cy - bodyR - child.outerRadius * scale * 2}
-                        r={child.outerRadius * scale * 2} fill="none" stroke="#8b919c" strokeWidth={0.8} /> : null
+                        r={child.outerRadius * scale * 2} fill="none" stroke={T.body} strokeWidth={0.7} /> : null
                 )}
-                <text x={cx} y={28} textAnchor="middle" fontSize="10" fill="#4a5060" fontFamily={FONT} fontWeight="500">Rear View</text>
+                <text x={cx} y={28} textAnchor="middle" fontSize="9" fill={T.gridText} fontFamily={FONT} fontWeight="500" letterSpacing="0.5">Rear View</text>
             </svg>
         </div>
     );
