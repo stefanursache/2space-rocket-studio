@@ -53,7 +53,7 @@ export function getAtmosphere(
         const T11 = baseTemperature - LAPSE_RATE * 11000;
         const P11 = basePressure * Math.pow(T11 / baseTemperature, G0 / (LAPSE_RATE * R_AIR));
         const P20 = P11 * Math.exp(-G0 * 9000 / (R_AIR * T11));
-        const lapseRate2 = -0.001; // warming rate in upper stratosphere
+        const lapseRate2 = 0.001; // ISA warming rate in upper stratosphere (20-32km): +1 K/km
         temperature = T11 + lapseRate2 * (h - 20000);
         pressure = P20 * Math.pow(temperature / T11, G0 / (lapseRate2 * R_AIR));
     }

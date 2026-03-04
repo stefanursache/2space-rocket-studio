@@ -215,7 +215,11 @@ export function runSimulation(
                 const q = getDynamicPressure(relSpeed, atm.density);
                 dragForce = q * cd * activeRec.area;
             } else {
-                const aeroForces = calculateDrag(rocket, relSpeed, state.posY);
+                const aeroForces = calculateDrag(
+                    rocket, relSpeed, state.posY,
+                    motor || undefined, motorPosition, propellantRemaining,
+                    options.launchTemperature, options.launchPressure
+                );
                 cd = aeroForces.cd;
                 const q = getDynamicPressure(relSpeed, atm.density);
                 dragForce = q * cd * refArea;
@@ -283,13 +287,19 @@ export function runSimulation(
             // Rate depends on stability margin and dynamic pressure.
             // OpenRocket models this via restoring moment; we approximate with
             // exponential tracking. Stable rockets (margin>0) align quickly.
+            // Recalculate stability with current propellant and Mach for dynamic tracking
             if (relSpeed > 0.5) {
+                const currentMach = getMachNumber(relSpeed, atm.speedOfSound);
+                const currentStab = calculateStability(
+                    rocket, motor || undefined, motorPosition,
+                    propellantRemaining, currentMach
+                );
                 const relUx = relVelX / relSpeed;
                 const relUy = relVelY / relSpeed;
                 const relUz = relVelZ / relSpeed;
                 // Weathercock rate: higher stability = faster alignment
                 // tau ≈ 0.1s for stability margin ~2 cal, slower for marginal rockets
-                const stabMargin = Math.max(stability.stabilityMargin, 0);
+                const stabMargin = Math.max(currentStab.stabilityMargin, 0);
                 const tau = stabMargin > 0.1 ? 0.15 / stabMargin : 5.0;
                 const blend = Math.min(1, dt / tau);
                 bodyDirX += (relUx - bodyDirX) * blend;
