@@ -509,14 +509,12 @@ const FreeformFin2D: React.FC<{
 /* ---------- MOTOR ---------- */
 const Motor2D: React.FC<{ motor: Motor; motorPosition: number; scale: number; padding: number; centerY: number }> = ({ motor, motorPosition, scale, padding, centerY }) => {
     const mLen = (motor.length / 1000) * scale, mR = (motor.diameter / 2 / 1000) * scale;
-    const mx = padding + motorPosition * scale, nzLen = mLen * 0.12, nzR = mR * 0.5, nzX = mx + mLen;
+    const mx = padding + motorPosition * scale;
     return (
         <g>
             <rect x={mx} y={centerY - mR} width={mLen} height={mR * 2} fill={T.shock} fillOpacity={0.12} stroke={T.shock} strokeWidth={0.8} rx={1.5} />
-            <rect x={mx + 2} y={centerY - mR + 2} width={Math.max(0, mLen - nzLen - 4)} height={Math.max(0, mR * 2 - 4)}
+            <rect x={mx + 2} y={centerY - mR + 2} width={Math.max(0, mLen - 4)} height={Math.max(0, mR * 2 - 4)}
                 fill="#8B4513" fillOpacity={0.1} stroke="none" rx={1} />
-            <polygon points={`${nzX},${centerY - mR} ${nzX + nzLen},${centerY - nzR} ${nzX + nzLen},${centerY + nzR} ${nzX},${centerY + mR}`}
-                fill="#555" fillOpacity={0.2} stroke={T.shock} strokeWidth={0.5} />
             <text x={mx + mLen / 2} y={centerY + mR + 16} textAnchor="middle" fontSize="6" fill={T.shock} fontFamily={FONT} fontWeight="600" opacity={0.6}>{motor.designation}</text>
         </g>
     );

@@ -617,7 +617,8 @@ export function calculateDrag(
         }
 
         if (wetArea > 0) {
-            const Cf = frictionCoefficient(Re * compLen / totalLength, roughness, compLen);
+            // Use total body Reynolds number for continuous boundary layer
+            const Cf = frictionCoefficient(Re, roughness, totalLength);
             cdFriction += Cf * wetArea / refArea;
         }
 
@@ -644,16 +645,13 @@ export function calculateDrag(
     }
 
     // Compressibility correction for skin friction
-    if (mach > 0.3 && mach < 1.0) {
-        // Subsonic: Prandtl-Glauert correction
-        cdFriction /= Math.sqrt(1 - mach * mach);
-    } else if (mach >= 1.0) {
-        // Supersonic: friction decreases due to adiabatic wall heating
-        // Van Driest II correlation simplified:
-        // Cf_comp / Cf_inc ≈ 1 / (1 + 0.144 * M²)^0.65
-        // At M=1.0 this gives ~0.91, at M=2.0 gives ~0.65
-        // (smooth connection from transonic P-G at M=1)
-        const compFactor = 1.0 / Math.pow(1 + 0.144 * mach * mach, 0.65);
+    // Eckert reference temperature method: wall heating REDUCES skin friction
+    // Cf_comp/Cf_inc = (1 + r*(γ-1)/2 * M²)^(-0.467)  where r≈0.88 (turbulent recovery)
+    // ≈ (1 + 0.176 * M²)^(-0.467)
+    // Smooth, monotonically decreasing across all Mach numbers
+    // M=0.5: 0.96, M=0.8: 0.94, M=1.0: 0.92, M=1.5: 0.85, M=2.0: 0.76
+    if (mach > 0.3) {
+        const compFactor = Math.pow(1 + 0.176 * mach * mach, -0.467);
         cdFriction *= compFactor;
     }
 
@@ -693,13 +691,18 @@ export function calculateDrag(
                 for (const child of bt.children) {
                     if (child.type === 'trapezoidfinset' || child.type === 'ellipticalfinset') {
                         const t = child.thickness;
-                        const finRefArea = child.type === 'trapezoidfinset'
+                        const finPlanform = child.type === 'trapezoidfinset'
                             ? 0.5 * (child.rootChord + child.tipChord) * child.height
                             : Math.PI * child.rootChord * child.height / 4;
                         const finCount = child.finCount;
-                        // Approximate LE pressure drag
-                        const cdFinLE = 1.2 * t * child.height * finCount / refArea;
-                        cdPressure += cdFinLE;
+                        // Fin thickness pressure drag (Hoerner form factor approach)
+                        // Cdp ≈ 2*(t/c)² referenced to fin planform area
+                        const avgChord = child.type === 'trapezoidfinset'
+                            ? (child.rootChord + child.tipChord) / 2
+                            : child.rootChord;
+                        const tc = avgChord > 0 ? t / avgChord : 0.05;
+                        const cdFinPressure = 2.0 * tc * tc * finPlanform * finCount / refArea;
+                        cdPressure += cdFinPressure;
                     }
                 }
             }
