@@ -55,6 +55,24 @@ function getCompRadius(comp: RocketComponent): number {
     }
 }
 
+function getCompForeRadius(comp: RocketComponent): number {
+    switch (comp.type) {
+        case 'nosecone': return 0; // tip of nose
+        case 'bodytube': return comp.outerRadius;
+        case 'transition': return comp.foreRadius;
+        default: return 0;
+    }
+}
+
+function getCompAftRadius(comp: RocketComponent): number {
+    switch (comp.type) {
+        case 'nosecone': return comp.baseRadius;
+        case 'bodytube': return comp.outerRadius;
+        case 'transition': return comp.aftRadius;
+        default: return 0;
+    }
+}
+
 export function getRocketLength(rocket: Rocket): number {
     let length = 0;
     for (const stage of rocket.stages) {
@@ -546,27 +564,91 @@ export function calculateStability(
 // Drag Calculation
 // ===========================
 
-function frictionCoefficient(Re: number, roughness: number, length: number): number {
+/**
+ * Calculate skin friction coefficient (Cf) matching OpenRocket's BarrowmanDragCalculator.
+ *
+ * OpenRocket approach (non-perfect finish):
+ *   Re < 1e4:  Cf = 1.48e-2  (constant)
+ *   Re >= 1e4: Cf = 1 / (1.50·ln(Re) - 5.6)²  (fully turbulent)
+ *
+ * Compressibility corrections (two-factor method):
+ *   c1 (subsonic, M < 1.1):  1 - 0.1·M²
+ *   c2 (supersonic, M > 0.9): 1 / (1 + 0.15·M²)^0.58
+ *   Transonic (0.9 < M < 1.1): linear blend of c1 and c2
+ *
+ * Roughness-limited Cf = max(Cf, roughnessLimited)
+ * where roughnessLimited = 0.032 · (roughness/length)^0.2 · roughnessCorrection(M)
+ */
+function frictionCoefficient(Re: number, mach: number, roughness: number, length: number): number {
     if (Re < 1) return 0;
 
-    // Laminar or turbulent
-    const Re_crit = 5e5;
     let Cf: number;
 
-    if (Re < Re_crit) {
-        // Laminar: Blasius solution
-        Cf = 1.328 / Math.sqrt(Re);
+    // Base Cf (non-perfect finish — fully turbulent)
+    if (Re < 1e4) {
+        Cf = 1.48e-2;
     } else {
-        // Turbulent: Schlichting empirical formula
-        Cf = 0.455 / Math.pow(Math.log10(Re), 2.58);
-        // Roughness correction
-        if (roughness > 0 && length > 0) {
-            const CfRough = 1 / Math.pow(1.89 + 1.62 * Math.log10(length / roughness), 2.5);
-            Cf = Math.max(Cf, CfRough);
+        // Turbulent: matching OpenRocket's formula (natural log)
+        const lnRe = Math.log(Re); // natural log
+        Cf = 1.0 / Math.pow(1.50 * lnRe - 5.6, 2);
+    }
+
+    // Compressibility correction (two-factor method from OpenRocket)
+    let c1 = 1.0;
+    let c2 = 1.0;
+
+    if (mach < 1.1) {
+        c1 = 1 - 0.1 * mach * mach;
+    }
+    if (mach > 0.9) {
+        c2 = 1 / Math.pow(1 + 0.15 * mach * mach, 0.58);
+    }
+
+    if (mach < 0.9) {
+        Cf *= c1;
+    } else if (mach < 1.1) {
+        // Transonic: linear blend between c1 and c2
+        Cf *= (c2 * (mach - 0.9) / 0.2 + c1 * (1.1 - mach) / 0.2);
+    } else {
+        Cf *= c2;
+    }
+
+    // Roughness-limited Cf (OpenRocket: max of smooth Cf and rough Cf)
+    if (roughness > 0 && length > 0) {
+        // Roughness correction factor (Mach-dependent, from OpenRocket)
+        let roughnessCorrection: number;
+        if (mach < 0.9) {
+            roughnessCorrection = 1 - 0.1 * mach * mach;
+        } else if (mach > 1.1) {
+            roughnessCorrection = 1 / (1 + 0.18 * mach * mach);
+        } else {
+            const rc1 = 1 - 0.1 * 0.9 * 0.9;
+            const rc2 = 1.0 / (1 + 0.18 * 1.1 * 1.1);
+            roughnessCorrection = rc2 * (mach - 0.9) / 0.2 + rc1 * (1.1 - mach) / 0.2;
         }
+        const roughnessLimited = 0.032 * Math.pow(roughness / length, 0.2) * roughnessCorrection;
+        Cf = Math.max(Cf, roughnessLimited);
     }
 
     return Cf;
+}
+
+// Stagnation pressure coefficient (OpenRocket BarrowmanDragCalculator)
+function stagnationCD(mach: number): number {
+    if (mach <= 1) {
+        return 0.85 * (1 + mach * mach / 4 + Math.pow(mach, 4) / 40);
+    } else {
+        return 0.85 * (1.84 - 0.76 / (mach * mach) + 0.166 / Math.pow(mach, 4) + 0.035 / Math.pow(mach, 6));
+    }
+}
+
+// Base drag coefficient (OpenRocket BarrowmanDragCalculator)
+function baseDragCoefficient(mach: number): number {
+    if (mach <= 1) {
+        return 0.12 + 0.13 * mach * mach;
+    } else {
+        return 0.25 / mach;
+    }
 }
 
 export function calculateDrag(
@@ -597,13 +679,22 @@ export function calculateDrag(
     const motorFiring = motor && propellantMassRemaining !== undefined && propellantMassRemaining > 0;
 
     // === Friction Drag ===
+    // OpenRocket approach: compute a single Cf for the full rocket length,
+    // then apply per-component wetted area. Body friction gets a fineness ratio correction.
     let cdFriction = 0;
+    let bodyFrictionCD = 0;
+    let otherFrictionCD = 0;
+    let maxBodyR = 0;
+    let minBodyX = Infinity;
+    let maxBodyX = 0;
 
     for (const pos of positions) {
         const comp = pos.component;
         let wetArea = 0;
-        const compLen = pos.xEnd - pos.xStart;
-        let roughness = SURFACE_ROUGHNESS[comp.finish];
+        const roughness = SURFACE_ROUGHNESS[comp.finish];
+
+        // Per-component roughness-limited Cf
+        const componentCf = frictionCoefficient(Re, mach, roughness, totalLength);
 
         if (comp.type === 'nosecone') {
             // Wetted area of nose cone (approximate as cone)
@@ -617,73 +708,135 @@ export function calculateDrag(
         }
 
         if (wetArea > 0) {
-            // Use total body Reynolds number for continuous boundary layer
-            const Cf = frictionCoefficient(Re, roughness, totalLength);
-            cdFriction += Cf * wetArea / refArea;
+            const cd = componentCf * wetArea / refArea;
+            bodyFrictionCD += cd;
+
+            // Track body extent for fineness ratio correction
+            minBodyX = Math.min(minBodyX, pos.xStart);
+            maxBodyX = Math.max(maxBodyX, pos.xEnd);
+            const r = getCompRadius(comp);
+            maxBodyR = Math.max(maxBodyR, r);
         }
 
-        // Fin friction drag
+        // Fin friction drag (OpenRocket FinSetCalc formula)
         if (comp.type === 'bodytube' && comp.children) {
             for (const child of comp.children) {
                 if (child.type === 'trapezoidfinset') {
                     const finArea = 0.5 * (child.rootChord + child.tipChord) * child.height;
-                    const finWetArea = 2 * finArea * child.finCount; // both sides
-                    const Cf = frictionCoefficient(Re * child.rootChord / totalLength, roughness, child.rootChord);
-                    cdFriction += Cf * finWetArea / refArea * 1.04; // interference factor
+                    const finCount = child.finCount;
+                    const t = child.thickness;
+                    // MAC length for trapezoidal fin
+                    const Cr = child.rootChord;
+                    const Ct = child.tipChord;
+                    const macLength = Cr - 2 * (Cr - Ct) * (0.5 * Cr + Ct) / (3 * (Cr + Ct));
+                    // OpenRocket: cd = Cf * (1 + 2*t/mac) * 2 * finArea / Aref
+                    const finCf = frictionCoefficient(Re, mach, roughness, totalLength);
+                    const thicknessFactor = macLength > 0 ? (1 + 2 * t / macLength) : 1;
+                    otherFrictionCD += finCf * thicknessFactor * 2 * finArea * finCount / refArea;
                 }
                 if (child.type === 'ellipticalfinset') {
                     const finArea = Math.PI * child.rootChord * child.height / 4;
-                    const finWetArea = 2 * finArea * child.finCount;
-                    const Cf = frictionCoefficient(Re * child.rootChord / totalLength, roughness, child.rootChord);
-                    cdFriction += Cf * finWetArea / refArea * 1.04;
+                    const finCount = child.finCount;
+                    const t = child.thickness;
+                    const macLength = child.rootChord * 0.8488; // MAC of elliptical planform
+                    const finCf = frictionCoefficient(Re, mach, roughness, totalLength);
+                    const thicknessFactor = macLength > 0 ? (1 + 2 * t / macLength) : 1;
+                    otherFrictionCD += finCf * thicknessFactor * 2 * finArea * finCount / refArea;
                 }
                 if (child.type === 'launchlug') {
-                    cdFriction += 0.01; // approximate
+                    otherFrictionCD += 0.01; // approximate
                 }
             }
         }
     }
 
-    // Compressibility correction for skin friction
-    // Eckert reference temperature method: wall heating REDUCES skin friction
-    // Cf_comp/Cf_inc = (1 + r*(γ-1)/2 * M²)^(-0.467)  where r≈0.88 (turbulent recovery)
-    // ≈ (1 + 0.176 * M²)^(-0.467)
-    // Smooth, monotonically decreasing across all Mach numbers
-    // M=0.5: 0.96, M=0.8: 0.94, M=1.0: 0.92, M=1.5: 0.85, M=2.0: 0.76
-    if (mach > 0.3) {
-        const compFactor = Math.pow(1 + 0.176 * mach * mach, -0.467);
-        cdFriction *= compFactor;
+    // Body fineness ratio correction (OpenRocket: (1 + 1/(2*fB)))
+    // fB = body length / max body radius
+    if (maxBodyR > 0) {
+        const fB = (maxBodyX - minBodyX + 0.0001) / maxBodyR;
+        const correction = 1 + 1.0 / (2 * fB);
+        bodyFrictionCD *= correction;
     }
+
+    cdFriction = bodyFrictionCD + otherFrictionCD;
 
     // === Pressure Drag ===
     let cdPressure = 0;
 
-    // Nose cone pressure drag
+    // Nose cone pressure drag (OpenRocket uses experimental interpolation from NASA TR-R-100)
+    // We approximate with fineness-ratio dependent correlations for each shape
     for (const pos of positions) {
         if (pos.component.type === 'nosecone') {
             const nose = pos.component;
             const fineRatio = nose.length / (nose.baseRadius * 2);
-            // Von Kármán approximation
+
+            // Subsonic pressure drag at M=0 (base value, fineness~3 reference)
+            let cdNose: number;
             switch (nose.shape) {
                 case 'conical':
-                    cdPressure += 0.5 * Math.sin(Math.atan(1 / fineRatio)) ** 2;
+                    cdNose = 0.50 / (fineRatio * fineRatio);
                     break;
                 case 'ogive':
-                    cdPressure += 0.2 / (fineRatio * fineRatio);
+                    cdNose = 0.18 / (fineRatio * fineRatio);
                     break;
                 case 'ellipsoid':
-                    cdPressure += 0.1 / (fineRatio * fineRatio);
+                    cdNose = 0.10 / (fineRatio * fineRatio);
                     break;
-                case 'haack':
-                    cdPressure += 0.08 / (fineRatio * fineRatio);
+                case 'haack': // Von Kármán / Sears-Haack
+                    cdNose = 0.08 / (fineRatio * fineRatio);
                     break;
                 default:
-                    cdPressure += 0.15 / (fineRatio * fineRatio);
+                    cdNose = 0.15 / (fineRatio * fineRatio);
             }
+
+            // Transonic and supersonic: scale with Mach-dependent factor
+            // OpenRocket uses Prandtl-Glauert style for subsonic, wave drag for supersonic
+            if (mach > 0.8 && mach < 1.0) {
+                // Transonic drag rise
+                const t = (mach - 0.8) / 0.2;
+                const ramp = 3 * t * t - 2 * t * t * t;
+                let peakCd: number;
+                switch (nose.shape) {
+                    case 'conical': peakCd = 0.8 / (fineRatio * fineRatio); break;
+                    case 'ogive': peakCd = 0.5 / Math.pow(fineRatio, 1.5); break;
+                    case 'haack': peakCd = 0.3 / Math.pow(fineRatio, 1.5); break;
+                    case 'ellipsoid': peakCd = 0.6 / Math.pow(fineRatio, 1.5); break;
+                    default: peakCd = 0.5 / Math.pow(fineRatio, 1.5);
+                }
+                cdNose = cdNose + (peakCd - cdNose) * ramp;
+            } else if (mach >= 1.0) {
+                let peakCd: number;
+                switch (nose.shape) {
+                    case 'conical': peakCd = 0.8 / (fineRatio * fineRatio); break;
+                    case 'ogive': peakCd = 0.5 / Math.pow(fineRatio, 1.5); break;
+                    case 'haack': peakCd = 0.3 / Math.pow(fineRatio, 1.5); break;
+                    case 'ellipsoid': peakCd = 0.6 / Math.pow(fineRatio, 1.5); break;
+                    default: peakCd = 0.5 / Math.pow(fineRatio, 1.5);
+                }
+                const mEff = Math.max(mach, 1.05);
+                cdNose = peakCd / Math.sqrt(mEff * mEff - 1);
+            }
+
+            cdPressure += cdNose;
         }
     }
 
-    // Fin leading edge pressure drag
+    // Pressure drag at body diameter transitions (OpenRocket: stagnation pressure)
+    // Applied where foreRadius of a component > aftRadius of previous component (step increase)
+    for (let i = 1; i < positions.length; i++) {
+        const prevComp = positions[i - 1].component;
+        const curComp = positions[i].component;
+        const prevAftR = getCompAftRadius(prevComp);
+        const curForeR = getCompForeRadius(curComp);
+        if (curForeR > prevAftR && prevAftR >= 0) {
+            // Step increase in radius: stagnation pressure drag
+            const stepArea = Math.PI * (curForeR * curForeR - prevAftR * prevAftR);
+            cdPressure += stagnationCD(mach) * stepArea / refArea;
+        }
+    }
+
+    // Fin pressure drag (OpenRocket FinSetCalc approach)
+    // Uses leading edge stagnation-based formula for rounded/airfoil cross-section
     for (const pos of positions) {
         if (pos.component.type === 'bodytube') {
             const bt = pos.component as BodyTube;
@@ -691,147 +844,72 @@ export function calculateDrag(
                 for (const child of bt.children) {
                     if (child.type === 'trapezoidfinset' || child.type === 'ellipticalfinset') {
                         const t = child.thickness;
-                        const finPlanform = child.type === 'trapezoidfinset'
-                            ? 0.5 * (child.rootChord + child.tipChord) * child.height
-                            : Math.PI * child.rootChord * child.height / 4;
                         const finCount = child.finCount;
-                        // Fin thickness pressure drag (Hoerner form factor approach)
-                        // Cdp ≈ 2*(t/c)² referenced to fin planform area
-                        const avgChord = child.type === 'trapezoidfinset'
-                            ? (child.rootChord + child.tipChord) / 2
-                            : child.rootChord;
-                        const tc = avgChord > 0 ? t / avgChord : 0.05;
-                        const cdFinPressure = 2.0 * tc * tc * finPlanform * finCount / refArea;
-                        cdPressure += cdFinPressure;
-                    }
-                }
-            }
-        }
-    }
+                        const span = child.height;
+                        const Cr = child.rootChord;
 
-    // === Transonic / Supersonic Wave Drag ===
-    // Wave drag due to volume (area rule) — onset at M_crit ≈ 0.8
-    // Based on linearized theory and empirical correlations
-    if (mach > 0.8) {
-        let cdWave = 0;
-
-        // Nose cone wave drag (Sears-Haack body equivalent)
-        for (const pos of positions) {
-            if (pos.component.type === 'nosecone') {
-                const nose = pos.component;
-                const fineRatio = nose.length / (nose.baseRadius * 2);
-
-                if (mach < 1.0) {
-                    // Transonic drag rise (smooth onset from M=0.8 to M=1.0)
-                    const t = (mach - 0.8) / 0.2;
-                    const rampFactor = 3 * t * t - 2 * t * t * t; // Hermite
-                    // Peak transonic wave drag ~ 0.5 / fineness^1.5 for ogive
-                    let peakCd: number;
-                    switch (nose.shape) {
-                        case 'conical': peakCd = 0.8 / (fineRatio * fineRatio); break;
-                        case 'ogive': peakCd = 0.5 / Math.pow(fineRatio, 1.5); break;
-                        case 'haack': peakCd = 0.3 / Math.pow(fineRatio, 1.5); break;
-                        case 'ellipsoid': peakCd = 0.6 / Math.pow(fineRatio, 1.5); break;
-                        default: peakCd = 0.5 / Math.pow(fineRatio, 1.5);
-                    }
-                    cdWave += peakCd * rampFactor;
-                } else {
-                    // Supersonic: linearized theory — Cd ≈ k / (M² - 1)^0.5 for slender bodies
-                    // Transitions from peak value at M=1 and decreases
-                    let peakCd: number;
-                    switch (nose.shape) {
-                        case 'conical': peakCd = 0.8 / (fineRatio * fineRatio); break;
-                        case 'ogive': peakCd = 0.5 / Math.pow(fineRatio, 1.5); break;
-                        case 'haack': peakCd = 0.3 / Math.pow(fineRatio, 1.5); break;
-                        case 'ellipsoid': peakCd = 0.6 / Math.pow(fineRatio, 1.5); break;
-                        default: peakCd = 0.5 / Math.pow(fineRatio, 1.5);
-                    }
-                    // Decrease from peak: use 1/sqrt(M²-1) capped at M=1.05
-                    const mEff = Math.max(mach, 1.05);
-                    cdWave += peakCd / Math.sqrt(mEff * mEff - 1);
-                }
-            }
-        }
-
-        // Fin wave drag (supersonic leading edge)
-        for (const pos of positions) {
-            if (pos.component.type === 'bodytube') {
-                const bt = pos.component as BodyTube;
-                if (bt.children) {
-                    for (const child of bt.children) {
-                        if (child.type === 'trapezoidfinset' || child.type === 'ellipticalfinset') {
-                            const finThick = child.thickness;
-                            const finChord = child.type === 'trapezoidfinset' ? child.rootChord : child.rootChord;
-                            const thicknessRatio = finChord > 0 ? finThick / finChord : 0.05;
-
-                            if (mach >= 1.0) {
-                                // Supersonic fin wave drag: Cd ~ 4α²/sqrt(M²-1) for thin airfoil + thickness term
-                                const mEff = Math.max(mach, 1.05);
-                                const beta = Math.sqrt(mEff * mEff - 1);
-                                // Diamond airfoil: Cd_wave = 4 * (t/c)² / beta
-                                const cdFinWave = 4 * thicknessRatio * thicknessRatio / beta;
-                                const finArea = child.type === 'trapezoidfinset'
-                                    ? 0.5 * (child.rootChord + (child as TrapezoidFinSet).tipChord) * child.height
-                                    : Math.PI * child.rootChord * child.height / 4;
-                                cdWave += cdFinWave * finArea * child.finCount / refArea;
-                            } else if (mach > 0.8) {
-                                // Transonic fin drag rise
-                                const t = (mach - 0.8) / 0.2;
-                                const ramp = 3 * t * t - 2 * t * t * t;
-                                const cdFinWave = 4 * thicknessRatio * thicknessRatio; // peak at M=1
-                                const finArea = child.type === 'trapezoidfinset'
-                                    ? 0.5 * (child.rootChord + (child as TrapezoidFinSet).tipChord) * child.height
-                                    : Math.PI * child.rootChord * child.height / 4;
-                                cdWave += cdFinWave * ramp * finArea * child.finCount / refArea;
+                        // Leading edge angle (sweep angle of leading edge)
+                        let gammaLead = 0;
+                        if (child.type === 'trapezoidfinset') {
+                            const sweep = child.sweepLength;
+                            if (span > 0) {
+                                gammaLead = Math.atan2(sweep, span);
                             }
                         }
+
+                        // OpenRocket: Leading edge pressure drag for ROUNDED cross section
+                        // Subsonic: (1-M²)^(-0.417) - 1
+                        // Transonic: 1 - 1.785*(M-0.9)
+                        // Supersonic: 1.214 - 0.502/M² + 0.1095/M⁴ + 0.0231/M⁶
+                        let cdLE: number;
+                        if (mach < 0.9) {
+                            cdLE = Math.pow(1 - mach * mach, -0.417) - 1;
+                        } else if (mach < 1.0) {
+                            cdLE = 1 - 1.785 * (mach - 0.9);
+                        } else {
+                            cdLE = 1.214 - 0.502 / (mach * mach) + 0.1095 / Math.pow(mach, 4) + 0.0231 / Math.pow(mach, 6);
+                        }
+
+                        // Scale by cos²(sweep) for swept leading edge
+                        const cosGamma = Math.cos(gammaLead);
+                        cdLE *= cosGamma * cosGamma;
+
+                        // Trailing edge pressure drag (same formula structure for blunt TE)
+                        // OpenRocket: uses base drag coefficient for trailing edge
+                        const cdTE = baseDragCoefficient(mach);
+
+                        // Total: LE + TE, scaled by span*thickness/refArea
+                        let cdFin = (cdLE + cdTE) * span * t * finCount / refArea;
+
+                        cdPressure += cdFin;
                     }
                 }
             }
         }
-
-        cdPressure += cdWave;
     }
 
     // === Base Drag ===
-    // Model based on experimental data (Hoerner, "Fluid Dynamic Drag"):
-    // - Subsonic (M<0.6): Cd_base ≈ 0.12
-    // - Transonic (0.6<M<1.0): rises to ~0.25 near M=1
-    // - Supersonic (M>1.0): decreases approximately as 0.25/M
-    // Motor-on base drag is reduced ~50% due to exhaust filling the base region
+    // OpenRocket: apply base drag at every aft-to-fore area decrease along the body,
+    // including the final aft end of the rocket (open area to atmosphere).
+    // Formula: baseDragCoefficient(M) * π*(aftR² - nextR²) / refArea
     let cdBase = 0;
-    const lastPos = positions[positions.length - 1];
-    if (lastPos) {
-        let aftRadius = 0;
-        const comp = lastPos.component;
-        if (comp.type === 'bodytube') aftRadius = comp.outerRadius;
-        else if (comp.type === 'transition') aftRadius = comp.aftRadius;
+    const cdBaseCoeff = baseDragCoefficient(mach);
 
-        if (aftRadius > 0) {
-            const baseArea = Math.PI * aftRadius * aftRadius;
-            let cdBaseCoeff: number;
+    for (let i = 0; i < positions.length; i++) {
+        const comp = positions[i].component;
+        const aftR = getCompAftRadius(comp);
+        // Next component's fore radius (0 if last component = open to air)
+        const nextForeR = (i < positions.length - 1) ? getCompForeRadius(positions[i + 1].component) : 0;
 
-            if (mach < 0.6) {
-                cdBaseCoeff = 0.12;
-            } else if (mach < 1.0) {
-                // Transonic rise: smooth ramp from 0.12 to 0.25
-                const t = (mach - 0.6) / 0.4;
-                cdBaseCoeff = 0.12 + 0.13 * (3 * t * t - 2 * t * t * t); // smooth Hermite
-            } else if (mach < 2.0) {
-                // Supersonic: peak at M=1 then gradual decrease
-                cdBaseCoeff = 0.25 / mach;
-            } else {
-                // High supersonic: slow decrease
-                cdBaseCoeff = 0.125 / mach;
-            }
-
-            cdBase = cdBaseCoeff * baseArea / refArea;
-
-            // Motor-on base drag reduction: exhaust fills low-pressure base region
-            if (motorFiring) {
-                cdBase *= 0.5;
-            }
+        if (aftR > nextForeR) {
+            const areaDecrease = Math.PI * (aftR * aftR - nextForeR * nextForeR);
+            cdBase += cdBaseCoeff * areaDecrease / refArea;
         }
+    }
+
+    // Motor-on base drag reduction: exhaust fills low-pressure base region
+    if (motorFiring) {
+        cdBase *= 0.5;
     }
 
     const cd = cdFriction + cdPressure + cdBase;
