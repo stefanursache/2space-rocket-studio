@@ -164,13 +164,17 @@ const ComponentNode: React.FC<{
                 <span className="tree-icon" style={{ color: component.color }}>
                     {COMP_ICONS[component.type] || '•'}
                 </span>
-                <span className="tree-name">{component.name}</span>
-                <span className="tree-type">{formatType(component.type)}</span>
-                {'position' in component && !isTopLevel(component.type) && (
-                    <span className="tree-pos" title="Position from parent front">
-                        {((component as any).position * 1000).toFixed(0)}mm
-                    </span>
-                )}
+                <div className="tree-item-content">
+                    <span className="tree-name">{component.name}</span>
+                    <div className="tree-meta">
+                        <span className="tree-type">{formatType(component.type)}</span>
+                        {'position' in component && !isTopLevel(component.type) && (
+                            <span className="tree-pos" title="Position from parent front">
+                                {((component as any).position * 1000).toFixed(0)}mm
+                            </span>
+                        )}
+                    </div>
+                </div>
             </div>
 
             {/* Render children */}
