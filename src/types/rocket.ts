@@ -210,7 +210,8 @@ export interface Airbrakes extends BaseComponent {
     bladeWidth: number;        // blade chord length (m)
     bladeThickness: number;    // blade thickness (m)
     maxDeployAngle: number;    // maximum deployment angle (degrees, 0=closed, 90=fully open)
-    cd: number;                // drag coefficient when fully deployed
+    cd: number;                // flat-plate drag coefficient per blade (manual override value)
+    cdAutoCalculate: boolean;  // if true, Cd is auto-computed from blade geometry
     deployEvent: 'altitude' | 'timer' | 'burnout' | 'apogee' | 'never';
     deployAltitude: number;    // altitude trigger (m AGL)
     deployDelay: number;       // delay after trigger event (s)
@@ -329,6 +330,7 @@ export interface SimulationDataPoint {
     cd: number;
     dynamicPressure: number;
     reynoldsNumber: number;
+    airbrakesFraction: number; // 0-1, max deployment fraction across all devices
 }
 
 export interface SimulationResult {
@@ -379,6 +381,7 @@ export interface AeroForces {
     cdFriction: number;
     cdPressure: number;
     cdBase: number;
+    cdAirbrakes: number; // drag contribution from airbrakes (fully deployed)
     cnAlpha: number; // normal force slope
     cp: number; // center of pressure position
 }

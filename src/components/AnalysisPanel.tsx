@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useStore } from '../store/useStore';
-import { calculateStability, calculateDrag, getComponentPositions, getRocketLength, getMaxRadius, getReferenceArea } from '../physics/aerodynamics';
-import { getAtmosphere, getReynoldsNumber, getMachNumber, getDynamicPressure } from '../physics/atmosphere';
+import { calculateStability, calculateDrag, getComponentPositions, getRocketLength, getMaxRadius, getReferenceArea, findAirbrakes } from '../physics/aerodynamics';
+import { getAtmosphere, getDynamicPressure } from '../physics/atmosphere';
 
 const COLORS = ['#2196F3', '#4CAF50', '#FF9800', '#f44336', '#9C27B0', '#00BCD4', '#FF5722', '#795548', '#607D8B', '#E91E63'];
 
@@ -44,23 +44,22 @@ export const AnalysisPanel: React.FC = () => {
         // Drag breakdown at a reference speed (50 m/s at sea level)
         const refSpeed = 50;
         const atm = getAtmosphere(0);
-        const mach = getMachNumber(refSpeed, atm.temperature);
-        const kinematicViscosity = 1.789e-5 / atm.density;
-        const re = getReynoldsNumber(refSpeed, totalLength, kinematicViscosity);
         const dynP = getDynamicPressure(refSpeed, atm.density);
 
-        // Calculate drag contributions
+        // Calculate real drag using the aerodynamics engine
+        const aeroForces = calculateDrag(rocket, refSpeed, 0, selectedMotor, motorPosition);
+        const totalCd = aeroForces.cd;
+        const hasAirbrakes = findAirbrakes(rocket).length > 0;
+
+        // Build drag breakdown from real calculated values
         const dragData: { name: string; value: number }[] = [];
-
-        // Estimate a typical Cd for model rockets at this speed
-        const totalCd = refArea > 0 ? 0.75 : 0;
-
-        // Approximate friction/pressure/base drag split
         if (totalCd > 0) {
-            dragData.push({ name: 'Friction Drag', value: parseFloat((totalCd * 0.45).toFixed(4)) });
-            dragData.push({ name: 'Pressure Drag', value: parseFloat((totalCd * 0.30).toFixed(4)) });
-            dragData.push({ name: 'Base Drag', value: parseFloat((totalCd * 0.20).toFixed(4)) });
-            dragData.push({ name: 'Interference', value: parseFloat((totalCd * 0.05).toFixed(4)) });
+            dragData.push({ name: 'Friction Drag', value: parseFloat(aeroForces.cdFriction.toFixed(4)) });
+            dragData.push({ name: 'Pressure Drag', value: parseFloat(aeroForces.cdPressure.toFixed(4)) });
+            dragData.push({ name: 'Base Drag', value: parseFloat(aeroForces.cdBase.toFixed(4)) });
+            if (hasAirbrakes && aeroForces.cdAirbrakes > 0) {
+                dragData.push({ name: 'Airbrakes (deployed)', value: parseFloat(aeroForces.cdAirbrakes.toFixed(4)) });
+            }
         }
 
         // Stability at different speeds

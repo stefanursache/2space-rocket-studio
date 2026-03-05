@@ -29,6 +29,8 @@ const COL = {
     arrowGravity: '#9e9e9e',
     smoke: [180, 190, 200] as number[],
     apogeeMarker: '#64b5f6',
+    airbrakes: '#e07020',
+    sonicBoom: 'rgba(180,220,255,0.35)',
 };
 
 const MONO = '10px "JetBrains Mono","Fira Code","SF Mono",Menlo,monospace';
@@ -56,6 +58,40 @@ export const FlightAnimation: React.FC<FlightAnimationProps> = ({ result }) => {
             return { ...evt, frameIndex: idx >= 0 ? idx : 0 };
         })
         , [result.events, data]);
+
+    /* Pre-compute the viewing projection for the full trajectory.
+     * The animation shows a 2D side view. Instead of only showing east-west (positionX),
+     * we project the 3D trajectory onto the most meaningful vertical plane.
+     * This plane is determined by the dominant lateral direction of the trajectory,
+     * so rod angle in ANY compass direction and wind from ANY direction both show up. */
+    const trajectoryView = useMemo(() => {
+        // Find the point of maximum lateral displacement
+        let maxLateralSq = 0;
+        let refDirX = 1, refDirZ = 0;
+        for (const d of data) {
+            const sq = d.positionX * d.positionX + d.positionZ * d.positionZ;
+            if (sq > maxLateralSq) {
+                maxLateralSq = sq;
+                refDirX = d.positionX;
+                refDirZ = d.positionZ;
+            }
+        }
+        const refR = Math.sqrt(refDirX * refDirX + refDirZ * refDirZ);
+        // Viewing direction: project all positions onto this horizontal axis
+        const viewX = refR > 0.1 ? refDirX / refR : 1;
+        const viewZ = refR > 0.1 ? refDirZ / refR : 0;
+
+        // Compute projected lateral positions for ALL data points
+        const projected = data.map(d => d.positionX * viewX + d.positionZ * viewZ);
+
+        // Compute the FULL trajectory lateral extent (for stable scale)
+        const maxAbsLateral = Math.max(
+            ...projected.map(p => Math.abs(p)),
+            1.0 // minimum 1m to avoid huge zoom on zero-wind flights
+        );
+
+        return { viewX, viewZ, projected, maxAbsLateral };
+    }, [data]);
 
     const deployedChuteCount = events.filter(e => e.type === 'deployment' && frameIndex >= e.frameIndex).length;
     const isRecoveryDeployed = deployedChuteCount > 0;
@@ -104,7 +140,7 @@ export const FlightAnimation: React.FC<FlightAnimationProps> = ({ result }) => {
         canvas.style.height = H + 'px';
         const ctx = canvas.getContext('2d')!;
         ctx.scale(devicePixelRatio, devicePixelRatio);
-        drawScene(ctx, W, H, dp, data, frameIndex, maxAlt, deployedChuteCount, isBurning, hasLanded, events, result, showForces);
+        drawScene(ctx, W, H, dp, data, frameIndex, maxAlt, deployedChuteCount, isBurning, hasLanded, events, result, showForces, trajectoryView);
     });
 
     /* Resize */
@@ -150,16 +186,16 @@ export const FlightAnimation: React.FC<FlightAnimationProps> = ({ result }) => {
             </div>
             <div className="fa-controls">
                 <div className="fa-transport">
-                    <button className="fa-btn" onClick={() => { setPlaying(false); setFrameIndex(0); }} title="Reset">\u23EE</button>
-                    <button className="fa-btn" onClick={() => { setPlaying(false); stepFrame(-10); }} title="-10">\u23EA</button>
-                    <button className="fa-btn" onClick={() => { setPlaying(false); stepFrame(-1); }} title="-1">\u25C0</button>
+                    <button className="fa-btn" onClick={() => { setPlaying(false); setFrameIndex(0); }} title="Reset">{'\u23EE'}</button>
+                    <button className="fa-btn" onClick={() => { setPlaying(false); stepFrame(-10); }} title="-10">{'\u23EA'}</button>
+                    <button className="fa-btn" onClick={() => { setPlaying(false); stepFrame(-1); }} title="-1">{'\u25C0'}</button>
                     <button className="fa-btn fa-play-btn" onClick={togglePlay}>{playing ? '\u23F8' : '\u25B6'}</button>
-                    <button className="fa-btn" onClick={() => { setPlaying(false); stepFrame(1); }} title="+1">\u25B6</button>
-                    <button className="fa-btn" onClick={() => { setPlaying(false); stepFrame(10); }} title="+10">\u23E9</button>
-                    <button className="fa-btn" onClick={() => { setPlaying(false); setFrameIndex(maxFrame); }} title="End">\u23ED</button>
+                    <button className="fa-btn" onClick={() => { setPlaying(false); stepFrame(1); }} title="+1">{'\u25B6'}</button>
+                    <button className="fa-btn" onClick={() => { setPlaying(false); stepFrame(10); }} title="+10">{'\u23E9'}</button>
+                    <button className="fa-btn" onClick={() => { setPlaying(false); setFrameIndex(maxFrame); }} title="End">{'\u23ED'}</button>
                     <span className="fa-sep" />
                     <button className={"fa-btn fa-toggle" + (showForces ? " active" : "")}
-                        onClick={() => setShowForces(f => !f)} title="Toggle force vectors">\u21D5 Forces</button>
+                        onClick={() => setShowForces(f => !f)} title="Toggle force vectors">{'\u21D5'} Forces</button>
                 </div>
                 <div className="fa-scrubber">
                     <input type="range" min={0} max={maxFrame} value={frameIndex} onChange={handleScrub} className="fa-range" />
@@ -176,7 +212,7 @@ export const FlightAnimation: React.FC<FlightAnimationProps> = ({ result }) => {
                         <label>Speed:</label>
                         <select value={playbackSpeed} onChange={e => setPlaybackSpeed(parseFloat(e.target.value))}>
                             {[0.1, 0.25, 0.5, 1, 2, 5, 10].map(s =>
-                                <option key={s} value={s}>{s}\u00D7</option>)}
+                                <option key={s} value={s}>{s}{'\u00D7'}</option>)}
                         </select>
                     </div>
                     <div className="fa-telemetry">
@@ -188,6 +224,9 @@ export const FlightAnimation: React.FC<FlightAnimationProps> = ({ result }) => {
                         <span className="fa-tel-item"><b>Drag</b> {dp.dragForce.toFixed(2)}N</span>
                         <span className="fa-tel-item"><b>Mass</b> {(dp.totalMass * 1000).toFixed(0)}g</span>
                         <span className="fa-tel-item"><b>Mach</b> {dp.machNumber.toFixed(3)}</span>
+                        {dp.airbrakesFraction > 0 && (
+                            <span className="fa-tel-item" style={{ color: COL.airbrakes }}><b>AB</b> {(dp.airbrakesFraction * 100).toFixed(0)}%</span>
+                        )}
                     </div>
                     {currentEvent && (
                         <div className={"fa-phase fa-phase-" + currentEvent.type}>
@@ -196,11 +235,12 @@ export const FlightAnimation: React.FC<FlightAnimationProps> = ({ result }) => {
                             {currentEvent.type === 'burnout' && '\u25CC Coast Phase'}
                             {currentEvent.type === 'apogee' && (isRecoveryDeployed ? '\uD83E\uDE82 Recovery Descent' : '\u2193 Descent')}
                             {currentEvent.type === 'deployment' && '\uD83E\uDE82 Recovery Descent'}
+                            {currentEvent.type === 'airbrakes_deploy' && '\uD83D\uDEE1\uFE0F Airbrakes Deployed'}
                             {currentEvent.type === 'groundhit' && '\u2713 Landed'}
                         </div>
                     )}
                 </div>
-                <div className="fa-kbd-hint">Space play/pause \u00B7 \u2190\u2192 step \u00B7 Shift+\u2190\u2192 \u00D710 \u00B7 Home/End jump</div>
+                <div className="fa-kbd-hint">Space play/pause {'\u00B7'} {'\u2190\u2192'} step {'\u00B7'} Shift+{'\u2190\u2192'} {'\u00D7'}10 {'\u00B7'} Home/End jump</div>
             </div>
         </div>
     );
@@ -210,12 +250,19 @@ export const FlightAnimation: React.FC<FlightAnimationProps> = ({ result }) => {
    DRAW
    ================================================================ */
 
+interface TrajectoryView {
+    viewX: number;
+    viewZ: number;
+    projected: number[];
+    maxAbsLateral: number;
+}
+
 function drawScene(
     ctx: CanvasRenderingContext2D, W: number, H: number,
     dp: SimulationDataPoint, data: SimulationDataPoint[], frameIndex: number,
     maxAlt: number, chuteCount: number, burning: boolean, landed: boolean,
     events: Array<{ type: string; frameIndex: number; time: number; description: string }>,
-    _result: SimulationResult, showForces: boolean,
+    _result: SimulationResult, showForces: boolean, tv: TrajectoryView,
 ) {
     const alt = dp.altitude;
     const ML = 48, MR = 52, MT = 16;
@@ -226,8 +273,8 @@ function drawScene(
     const altToY = (a: number) => groundY - ((a / viewMaxAlt) * (skyH - MT - 8));
 
     const centerX = ML + (W - ML - MR) / 2;
-    const maxLateral = Math.max(...data.slice(0, frameIndex + 1).map(d => Math.abs(d.positionX)), 0.5);
-    const lateralScale = Math.min((W - ML - MR) * 0.4 / maxLateral, 300);
+    // STABLE lateral scale: uses full trajectory extent (no per-frame rescaling)
+    const lateralScale = Math.min((W - ML - MR) * 0.35 / tv.maxAbsLateral, 200);
 
     ctx.clearRect(0, 0, W, H);
 
@@ -268,8 +315,8 @@ function drawScene(
     ctx.font = MONO_SM;
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(100,160,80,0.35)';
-    const distStep = niceStep(maxLateral * 2, 6);
-    for (let d = -maxLateral * 2; d <= maxLateral * 2; d += Math.max(distStep, 0.5)) {
+    const distStep = niceStep(tv.maxAbsLateral * 2, 6);
+    for (let d = -tv.maxAbsLateral * 2; d <= tv.maxAbsLateral * 2; d += Math.max(distStep, 0.5)) {
         const gx = centerX + d * lateralScale;
         if (gx < ML || gx > W - MR) continue;
         ctx.fillText(d.toFixed(0) + 'm', gx, groundY + 14);
@@ -278,14 +325,14 @@ function drawScene(
         ctx.beginPath(); ctx.moveTo(gx, groundY); ctx.lineTo(gx, groundY + 4); ctx.stroke();
     }
 
-    drawSmoke(ctx, data, frameIndex, centerX, lateralScale, altToY);
-    drawFlightTrail(ctx, data, frameIndex, centerX, lateralScale, altToY, events);
+    drawSmoke(ctx, data, frameIndex, centerX, lateralScale, altToY, tv);
+    drawFlightTrail(ctx, data, frameIndex, centerX, lateralScale, altToY, events, tv);
 
     /* Apogee marker */
     const apogeeEvt = events.find(e => e.type === 'apogee');
     if (apogeeEvt && frameIndex >= apogeeEvt.frameIndex) {
         const apd = data[apogeeEvt.frameIndex];
-        const ax = centerX + apd.positionX * lateralScale;
+        const ax = centerX + tv.projected[apogeeEvt.frameIndex] * lateralScale;
         const ay = altToY(apd.altitude);
         ctx.strokeStyle = COL.apogeeMarker; ctx.lineWidth = 1;
         ctx.setLineDash([3, 3]);
@@ -295,14 +342,25 @@ function drawScene(
         ctx.fillText('\u25B2 ' + apd.altitude.toFixed(0) + 'm', ax, ay - 8);
     }
 
-    /* Rocket */
-    const rocketX = centerX + dp.positionX * lateralScale;
+    /* Rocket position (using projected lateral position) */
+    const rocketLateral = tv.projected[frameIndex] || 0;
+    const rocketX = centerX + rocketLateral * lateralScale;
     const rocketY = altToY(alt);
     const rLen = Math.max(16, Math.min(36, skyH * 0.04));
     const rW = rLen * 0.18;
+
+    // Rocket angle: project velocity onto the same viewing plane
     let angle = -Math.PI / 2;
-    if (dp.velocity > 0.5 && !landed) angle = Math.atan2(-dp.velocityY, dp.velocityX * (lateralScale / 80));
+    if (dp.velocity > 0.5 && !landed) {
+        const projVelLat = dp.velocityX * tv.viewX + dp.velocityZ * tv.viewZ;
+        angle = Math.atan2(-dp.velocityY, projVelLat);
+    }
     if (landed) angle = -Math.PI / 2;
+
+    /* Sonic boom / Mach effects */
+    if (dp.machNumber > 0.95) {
+        drawMachEffects(ctx, rocketX, rocketY, rLen, dp, angle);
+    }
 
     ctx.save();
     ctx.translate(rocketX, rocketY);
@@ -310,6 +368,17 @@ function drawScene(
     else drawParachute(ctx, rLen, rW, dp, chuteCount);
     if (showForces && !landed) drawForceVectors(ctx, dp, rLen, burning);
     ctx.restore();
+
+    /* Airbrakes deploy event marker */
+    const abEvt = events.find(e => e.type === 'airbrakes_deploy');
+    if (abEvt && frameIndex >= abEvt.frameIndex) {
+        const abd = data[abEvt.frameIndex];
+        const abx = centerX + tv.projected[abEvt.frameIndex] * lateralScale;
+        const aby = altToY(abd.altitude);
+        ctx.font = MONO_SM; ctx.textAlign = 'left';
+        ctx.fillStyle = COL.airbrakes;
+        ctx.fillText('\uD83D\uDEE1 AB', abx + 16, aby + 3);
+    }
 
     drawLaunchPad(ctx, centerX, groundY);
     drawAltBar(ctx, W, MR, MT, groundY, alt, viewMaxAlt);
@@ -342,36 +411,41 @@ function drawGrid(ctx: CanvasRenderingContext2D, W: number, groundY: number,
 /* ---- Flight trail ---- */
 function drawFlightTrail(ctx: CanvasRenderingContext2D, data: SimulationDataPoint[], frameIndex: number,
     cx: number, latScale: number, altToY: (a: number) => number,
-    events: Array<{ type: string; frameIndex: number }>) {
+    events: Array<{ type: string; frameIndex: number }>, tv: TrajectoryView) {
     if (frameIndex < 1) return;
     const trailStart = Math.max(0, frameIndex - 600);
+
+    // Glow trail
     ctx.strokeStyle = COL.trailGlow; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.beginPath();
     for (let i = trailStart; i <= frameIndex; i++) {
-        const d = data[i]; const px = cx + d.positionX * latScale; const py = altToY(d.altitude);
+        const d = data[i]; const px = cx + tv.projected[i] * latScale; const py = altToY(d.altitude);
         if (i === trailStart) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.stroke();
 
+    // Colored trail segments
     ctx.lineWidth = 1.8; ctx.lineCap = 'round';
     const burnoutIdx = events.find(e => e.type === 'burnout')?.frameIndex ?? Infinity;
     const deployIdx = events.find(e => e.type === 'deployment')?.frameIndex ?? Infinity;
+    const abDeployIdx = events.find(e => e.type === 'airbrakes_deploy')?.frameIndex ?? Infinity;
     for (let i = trailStart + 1; i <= frameIndex; i++) {
         const d0 = data[i - 1], d1 = data[i];
         let col: string;
         if (i < burnoutIdx) col = 'rgba(255,180,80,0.50)';
+        else if (i >= abDeployIdx && i < deployIdx) col = 'rgba(224,112,32,0.50)';
         else if (i < deployIdx) col = 'rgba(100,180,255,0.40)';
         else col = 'rgba(240,100,100,0.40)';
         ctx.strokeStyle = col; ctx.beginPath();
-        ctx.moveTo(cx + d0.positionX * latScale, altToY(d0.altitude));
-        ctx.lineTo(cx + d1.positionX * latScale, altToY(d1.altitude));
+        ctx.moveTo(cx + tv.projected[i - 1] * latScale, altToY(d0.altitude));
+        ctx.lineTo(cx + tv.projected[i] * latScale, altToY(d1.altitude));
         ctx.stroke();
     }
 }
 
 /* ---- Smoke ---- */
 function drawSmoke(ctx: CanvasRenderingContext2D, data: SimulationDataPoint[], frameIndex: number,
-    cx: number, latScale: number, altToY: (a: number) => number) {
+    cx: number, latScale: number, altToY: (a: number) => number, tv: TrajectoryView) {
     const SMOKE_LIFE = 120;
     const start = Math.max(0, frameIndex - SMOKE_LIFE);
     for (let i = start; i < frameIndex; i++) {
@@ -382,11 +456,103 @@ function drawSmoke(ctx: CanvasRenderingContext2D, data: SimulationDataPoint[], f
         const drift = age * 6;
         const jx = seededRand(i * 3 + 7) * 4 - 2;
         const jy = seededRand(i * 5 + 3) * 2;
-        const sx = cx + d.positionX * latScale + jx * age * 3;
+        const sx = cx + tv.projected[i] * latScale + jx * age * 3;
         const sy = altToY(d.altitude) + drift + jy;
         const c = COL.smoke;
         ctx.fillStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + alpha.toFixed(3) + ')';
         ctx.beginPath(); ctx.arc(sx, sy, size, 0, Math.PI * 2); ctx.fill();
+    }
+}
+
+/* ---- Mach / Sonic Boom Effects ---- */
+function drawMachEffects(ctx: CanvasRenderingContext2D, rx: number, ry: number,
+    rLen: number, dp: SimulationDataPoint, angle: number) {
+    const mach = dp.machNumber;
+
+    if (mach >= 1.0) {
+        // === Supersonic: Mach cone ===
+        // Mach angle = arcsin(1/M)
+        const machAngle = Math.asin(Math.min(1, 1 / mach));
+        const coneLen = rLen * (3 + mach * 1.5);
+
+        ctx.save();
+        ctx.translate(rx, ry);
+        ctx.rotate(angle + Math.PI / 2);
+
+        // Mach cone opening half-angle from nose
+        const openAngle = Math.PI / 2 - machAngle;
+        const flickerA = 0.15 + Math.sin(dp.time * 30) * 0.04;
+
+        // Outer shock cone lines
+        ctx.strokeStyle = `rgba(180,220,255,${flickerA.toFixed(3)})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -rLen / 2 - rLen * 0.3);
+        ctx.lineTo(-Math.sin(openAngle) * coneLen, -rLen / 2 - rLen * 0.3 + Math.cos(openAngle) * coneLen);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, -rLen / 2 - rLen * 0.3);
+        ctx.lineTo(Math.sin(openAngle) * coneLen, -rLen / 2 - rLen * 0.3 + Math.cos(openAngle) * coneLen);
+        ctx.stroke();
+
+        // Inner bright cone
+        ctx.strokeStyle = `rgba(200,240,255,${(flickerA * 0.8).toFixed(3)})`;
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(0, -rLen / 2 - rLen * 0.3);
+        ctx.lineTo(-Math.sin(openAngle) * coneLen * 0.6, -rLen / 2 - rLen * 0.3 + Math.cos(openAngle) * coneLen * 0.6);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, -rLen / 2 - rLen * 0.3);
+        ctx.lineTo(Math.sin(openAngle) * coneLen * 0.6, -rLen / 2 - rLen * 0.3 + Math.cos(openAngle) * coneLen * 0.6);
+        ctx.stroke();
+
+        // Compression glow at nose
+        const glowR = rLen * 0.4 + Math.sin(dp.time * 50) * rLen * 0.05;
+        const glowGrad = ctx.createRadialGradient(0, -rLen / 2 - rLen * 0.3, 0, 0, -rLen / 2 - rLen * 0.3, glowR);
+        glowGrad.addColorStop(0, 'rgba(200,230,255,0.25)');
+        glowGrad.addColorStop(0.5, 'rgba(150,200,255,0.08)');
+        glowGrad.addColorStop(1, 'rgba(100,160,255,0)');
+        ctx.fillStyle = glowGrad;
+        ctx.beginPath(); ctx.arc(0, -rLen / 2 - rLen * 0.3, glowR, 0, Math.PI * 2); ctx.fill();
+
+        ctx.restore();
+
+        // Shockwave rings expanding from current position
+        const ringInterval = 0.4;
+        const ringLifespan = 2.0;
+        const maxRings = 5;
+        for (let r = 0; r < maxRings; r++) {
+            const ringAge = (dp.time % ringInterval + r * ringInterval) / ringLifespan;
+            if (ringAge > 1) continue;
+            const ringRadius = ringAge * rLen * 8;
+            const ringAlpha = Math.max(0, 0.12 * (1 - ringAge));
+            ctx.strokeStyle = `rgba(180,220,255,${ringAlpha.toFixed(3)})`;
+            ctx.lineWidth = 1 + (1 - ringAge) * 1.5;
+            ctx.beginPath();
+            ctx.ellipse(rx, ry, ringRadius, ringRadius * 0.3, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    } else if (mach > 0.95) {
+        // === Transonic: condensation / vapour cone ===
+        const trans = (mach - 0.95) / 0.05;
+        const vapAlpha = trans * 0.2;
+
+        ctx.save();
+        ctx.translate(rx, ry);
+        ctx.rotate(angle + Math.PI / 2);
+
+        const coneR = rLen * (1.5 + trans * 2);
+        const grad = ctx.createRadialGradient(0, 0, rLen * 0.3, 0, 0, coneR);
+        grad.addColorStop(0, `rgba(200,220,240,${vapAlpha.toFixed(3)})`);
+        grad.addColorStop(0.4, `rgba(180,200,230,${(vapAlpha * 0.5).toFixed(3)})`);
+        grad.addColorStop(1, 'rgba(160,180,210,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.ellipse(0, rLen * 0.3, coneR * 0.5, coneR * 0.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
     }
 }
 
@@ -395,22 +561,27 @@ function drawRocket(ctx: CanvasRenderingContext2D, rLen: number, rW: number, ang
     burning: boolean, dp: SimulationDataPoint) {
     ctx.rotate(angle + Math.PI / 2);
 
+    // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.beginPath(); ctx.roundRect(-rW - 0.5, -rLen / 2 + 0.5, rW * 2 + 1, rLen + 0.5, 2); ctx.fill();
 
+    // Body
     const bodyGrad = ctx.createLinearGradient(-rW, 0, rW, 0);
     bodyGrad.addColorStop(0, '#8898a8'); bodyGrad.addColorStop(0.3, COL.rocketBody);
     bodyGrad.addColorStop(0.7, COL.rocketBody); bodyGrad.addColorStop(1, '#98a8b8');
     ctx.fillStyle = bodyGrad;
     ctx.beginPath(); ctx.roundRect(-rW, -rLen / 2, rW * 2, rLen, 1.5); ctx.fill();
 
+    // Stripes
     ctx.fillStyle = COL.rocketStripe;
     ctx.fillRect(-rW, -rLen * 0.08, rW * 2, rLen * 0.05);
     ctx.fillRect(-rW, rLen * 0.08, rW * 2, rLen * 0.05);
 
+    // Body outline
     ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.lineWidth = 0.6;
     ctx.beginPath(); ctx.roundRect(-rW, -rLen / 2, rW * 2, rLen, 1.5); ctx.stroke();
 
+    // Nose cone
     const noseLen = rLen * 0.32;
     const noseGrad = ctx.createLinearGradient(-rW, 0, rW, 0);
     noseGrad.addColorStop(0, '#a03030'); noseGrad.addColorStop(0.4, COL.rocketNose); noseGrad.addColorStop(1, '#b03838');
@@ -423,6 +594,7 @@ function drawRocket(ctx: CanvasRenderingContext2D, rLen: number, rW: number, ang
     ctx.closePath(); ctx.fill();
     ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.5; ctx.stroke();
 
+    // Fins
     const finH = rLen * 0.30, finW = rLen * 0.20;
     const finGrad = ctx.createLinearGradient(-rW - finW, 0, -rW, 0);
     finGrad.addColorStop(0, '#a06028'); finGrad.addColorStop(1, COL.rocketFin);
@@ -436,10 +608,73 @@ function drawRocket(ctx: CanvasRenderingContext2D, rLen: number, rW: number, ang
         ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.lineWidth = 0.4; ctx.stroke();
     }
 
+    // Nozzle
     ctx.fillStyle = '#555';
     ctx.beginPath(); ctx.roundRect(-rW * 0.6, rLen / 2 - 1, rW * 1.2, 3, 0.5); ctx.fill();
 
+    // === Airbrakes blades ===
+    if (dp.airbrakesFraction > 0) {
+        drawAirbrakes(ctx, rLen, rW, dp.airbrakesFraction);
+    }
+
     if (burning && dp.thrustForce > 0.1) drawExhaust(ctx, rLen, rW, dp);
+}
+
+/* ---- Airbrakes visual ---- */
+function drawAirbrakes(ctx: CanvasRenderingContext2D, rLen: number, rW: number, fraction: number) {
+    // Draw deployed airbrake blades at ~30% from the aft end
+    const abY = rLen * 0.15; // position on body (slightly ahead of fins)
+    const bladeMaxLen = rLen * 0.22; // max blade height at full deployment
+    const bladeLen = bladeMaxLen * fraction;
+    const deployAngle = (Math.PI / 2) * fraction; // 0 to 90deg
+
+    const bladeColor = `rgba(224,112,32,${(0.5 + fraction * 0.4).toFixed(2)})`;
+    const bladeStroke = `rgba(180,80,20,${(0.4 + fraction * 0.4).toFixed(2)})`;
+
+    // Draw 2 visible blades (side view of 3-4 blades)
+    for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.translate(side * rW, abY);
+        // Rotate blade outward from body
+        ctx.rotate(side * deployAngle);
+
+        // Blade body
+        ctx.fillStyle = bladeColor;
+        ctx.beginPath();
+        ctx.rect(0, -1.2, bladeLen * side, 2.4);
+        ctx.fill();
+
+        // Blade outline
+        ctx.strokeStyle = bladeStroke;
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        ctx.rect(0, -1.2, bladeLen * side, 2.4);
+        ctx.stroke();
+
+        // Blade highlight (top edge)
+        ctx.fillStyle = `rgba(255,180,100,${(fraction * 0.3).toFixed(2)})`;
+        ctx.fillRect(side > 0 ? 1 : -bladeLen, -1.0, bladeLen * 0.4, 0.8);
+
+        ctx.restore();
+    }
+
+    // Hinge dots at blade pivots
+    ctx.fillStyle = '#666';
+    for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(side * rW, abY, 1, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Glow when fully deployed
+    if (fraction > 0.9) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(224,112,32,0.3)';
+        ctx.shadowBlur = 6;
+        ctx.fillStyle = 'rgba(224,112,32,0.08)';
+        ctx.beginPath(); ctx.arc(0, abY, rW * 3, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+    }
 }
 
 /* ---- Exhaust ---- */
@@ -489,12 +724,10 @@ function drawParachute(ctx: CanvasRenderingContext2D, rLen: number, rW: number, 
     const count = Math.max(1, chuteCount);
     const nCords = 8;
 
-    /* layout: first chute=drogue (smaller), subsequent=main (bigger) when >1 */
     const chutes: Array<{ radius: number; cordLen: number; offsetX: number; col: typeof CHUTE_COLOURS[0]; swayPhase: number }> = [];
     if (count === 1) {
         chutes.push({ radius: rLen * 1.8, cordLen: rLen * 2.0, offsetX: 0, col: CHUTE_COLOURS[0], swayPhase: 0 });
     } else {
-        /* First deploy = drogue (smaller), later deploys = main (bigger), spread horizontally */
         const totalSpan = rLen * 2.5 * (count - 1);
         for (let i = 0; i < count; i++) {
             const isDrogue = i === 0;
@@ -512,7 +745,6 @@ function drawParachute(ctx: CanvasRenderingContext2D, rLen: number, rW: number, 
         const cL = ch.cordLen;
         const ox = ch.offsetX;
 
-        /* Cord lines from rocket body to canopy */
         ctx.strokeStyle = COL.chuteLine; ctx.lineWidth = 0.6;
         for (let i = 0; i < nCords; i++) {
             const a = Math.PI + (i / (nCords - 1)) * Math.PI;
@@ -524,7 +756,6 @@ function drawParachute(ctx: CanvasRenderingContext2D, rLen: number, rW: number, 
             ctx.stroke();
         }
 
-        /* Canopy */
         ctx.save(); ctx.translate(ox + sway, -cL);
         const canopyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, cR * breathe);
         canopyGrad.addColorStop(0, ch.col.c0); canopyGrad.addColorStop(0.7, ch.col.c1);
@@ -534,7 +765,6 @@ function drawParachute(ctx: CanvasRenderingContext2D, rLen: number, rW: number, 
         ctx.strokeStyle = ch.col.stroke; ctx.lineWidth = 1.2;
         ctx.beginPath(); ctx.ellipse(0, 0, cR * breathe, cR * breathe * 0.45, 0, Math.PI, 0, false); ctx.stroke();
 
-        /* Canopy ribs */
         ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 0.4;
         for (let i = 1; i < nCords - 1; i++) {
             const a = Math.PI + (i / (nCords - 1)) * Math.PI;
@@ -542,13 +772,11 @@ function drawParachute(ctx: CanvasRenderingContext2D, rLen: number, rW: number, 
             ctx.lineTo(Math.cos(a) * cR * breathe, Math.sin(a) * cR * breathe * 0.45); ctx.stroke();
         }
 
-        /* Canopy highlight arc */
         ctx.strokeStyle = 'rgba(255,200,200,0.12)'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.ellipse(0, -cR * 0.08, cR * 0.5, cR * 0.12, 0, Math.PI * 1.1, Math.PI * 1.9, false); ctx.stroke();
         ctx.restore();
     }
 
-    /* Dangling rocket body (always one) */
     const mLen = rLen * 0.45, mW = rW * 0.65;
     const bodyG = ctx.createLinearGradient(-mW, 0, mW, 0);
     bodyG.addColorStop(0, '#8898a8'); bodyG.addColorStop(0.5, '#b0c0d0'); bodyG.addColorStop(1, '#90a0b0');
@@ -631,7 +859,13 @@ function drawAltBar(ctx: CanvasRenderingContext2D, W: number, MR: number, MT: nu
 
 /* ---- HUD ---- */
 function drawHUD(ctx: CanvasRenderingContext2D, dp: SimulationDataPoint, burning: boolean) {
-    const x = 54, y = 18, w = 155, h = burning ? 80 : 68;
+    const x = 54, y = 18, w = 155;
+    const hasAB = dp.airbrakesFraction > 0;
+    const hasMach = dp.machNumber > 0.9;
+    let h = burning ? 80 : 68;
+    if (hasAB) h += 13;
+    if (hasMach) h += 13;
+
     ctx.fillStyle = COL.hudBg;
     ctx.beginPath(); ctx.roundRect(x - 6, y - 4, w, h, 4); ctx.fill();
     ctx.strokeStyle = COL.hudBorder; ctx.lineWidth = 0.8;
@@ -651,6 +885,13 @@ function drawHUD(ctx: CanvasRenderingContext2D, dp: SimulationDataPoint, burning
     row('VEL', dp.velocity.toFixed(1) + ' m/s', '#81c784');
     row('Vy', (dp.velocityY >= 0 ? '+' : '') + dp.velocityY.toFixed(1) + ' m/s', dp.velocityY >= 0 ? '#81c784' : '#ef5350');
     if (burning) row('THR', dp.thrustForce.toFixed(1) + ' N', '#ffb74d');
+    if (hasMach) {
+        const machColor = dp.machNumber >= 1.0 ? '#ff6666' : '#ffcc66';
+        row('MACH', dp.machNumber.toFixed(3) + (dp.machNumber >= 1.0 ? ' \u26A1' : ''), machColor);
+    }
+    if (hasAB) {
+        row('BRAKE', (dp.airbrakesFraction * 100).toFixed(0) + '%', COL.airbrakes);
+    }
     row('t', dp.time.toFixed(2) + ' s', 'rgba(200,210,220,0.6)');
 }
 

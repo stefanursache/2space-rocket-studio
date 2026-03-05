@@ -210,7 +210,8 @@ export function createAirbrakes(): Airbrakes {
         bladeWidth: 0.020,      // 20mm chord
         bladeThickness: 0.001,  // 1mm thick
         maxDeployAngle: 60,     // degrees
-        cd: 1.17,               // flat plate drag coefficient
+        cd: 1.17,               // manual override flat plate Cd
+        cdAutoCalculate: true,  // auto-compute from geometry by default
         deployEvent: 'altitude',
         deployAltitude: 300,    // m AGL
         deployDelay: 0,         // s

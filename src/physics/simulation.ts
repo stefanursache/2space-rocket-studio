@@ -10,7 +10,7 @@ import { getAtmosphere, getGravity, getDynamicPressure, getMachNumber, getWindSp
 import {
     calculateDrag, calculateStability, calculateMassAndCG,
     getReferenceArea, getRocketLength, findRecoveryDevices,
-    findAirbrakes, calculateAirbrakesDrag
+    findAirbrakes, calculateAirbrakesDrag, calculateSingleAirbrakeDrag
 } from './aerodynamics';
 import { interpolateThrust } from '../models/motors';
 import { v4 as uuid } from 'uuid';
@@ -164,6 +164,9 @@ export function runSimulation(
 
     const launchRodLength = options.launchRodLength || 1.0;
 
+    // Track time since rod clear for gradual weathercocking ramp-up
+    let timeSinceRodClear = 0;
+
     // Log launch event
     events.push({
         time: 0, altitude: state.posY,
@@ -240,22 +243,23 @@ export function runSimulation(
                     motor || undefined, motorPosition, propellantRemaining,
                     options.launchTemperature, options.launchPressure
                 );
-                cd = aeroForces.cd;
+                // calculateDrag now includes fully-deployed airbrakes (cdAirbrakes).
+                // Subtract it and add the actual partial deployment contribution
+                // so the simulation can ramp each device independently.
+                cd = aeroForces.cd - aeroForces.cdAirbrakes; // base aero without airbrakes
                 const q = getDynamicPressure(relSpeed, atm.density);
-                dragForce = q * cd * refArea;
 
-                // Airbrakes additional drag (additive to normal aero drag)
-                let maxDeployFraction = 0;
+                // Airbrakes drag — sum each device at its current deployFraction
+                let cdAB = 0;
                 for (const abs of airbrakesStates) {
                     if (abs.deployFraction > 0) {
-                        maxDeployFraction = Math.max(maxDeployFraction, abs.deployFraction);
+                        cdAB += calculateSingleAirbrakeDrag(
+                            abs.device, refArea, abs.deployFraction
+                        );
                     }
                 }
-                if (maxDeployFraction > 0) {
-                    const cdAB = calculateAirbrakesDrag(rocket, refArea, maxDeployFraction);
-                    cd += cdAB;
-                    dragForce += q * cdAB * refArea;
-                }
+                cd += cdAB;
+                dragForce = q * cd * refArea;
             }
         }
 
@@ -361,13 +365,18 @@ export function runSimulation(
         } else {
             // Free flight — thrust along body axis, not velocity vector
             const speed = Math.sqrt(state.velX ** 2 + state.velY ** 2 + state.velZ ** 2);
+            timeSinceRodClear += dt;
 
             // Weathercocking: body axis gradually aligns toward relative velocity.
-            // Rate depends on stability margin and dynamic pressure.
-            // OpenRocket models this via restoring moment; we approximate with
-            // exponential tracking. Stable rockets (margin>0) align quickly.
-            // Recalculate stability with current propellant and Mach for dynamic tracking
-            if (relSpeed > 0.5) {
+            // The restoring moment depends on:
+            //   - Stability margin (further CP behind CG = stronger moment)
+            //   - Dynamic pressure (faster flight = stronger aerodynamic moment)
+            //   - Rocket moment of inertia (heavier/longer = slower rotation)
+            // We model this as exponential tracking with a physically-based tau.
+            //
+            // After leaving the launch rod, we ramp up the weathercocking authority
+            // over ~0.8s to prevent the body axis from snapping abruptly.
+            if (relSpeed > 1.0) {
                 const currentMach = getMachNumber(relSpeed, atm.speedOfSound);
                 const currentStab = calculateStability(
                     rocket, motor || undefined, motorPosition,
@@ -376,14 +385,41 @@ export function runSimulation(
                 const relUx = relVelX / relSpeed;
                 const relUy = relVelY / relSpeed;
                 const relUz = relVelZ / relSpeed;
-                // Weathercock rate: higher stability = faster alignment
-                // tau ≈ 0.1s for stability margin ~2 cal, slower for marginal rockets
+
                 const stabMargin = Math.max(currentStab.stabilityMargin, 0);
-                const tau = stabMargin > 0.1 ? 0.15 / stabMargin : 5.0;
-                const blend = Math.min(1, dt / tau);
+
+                // Dynamic pressure factor: weathercocking is proportional to q
+                // At low speed the moment is negligible; at high speed it's strong.
+                // Reference: q at ~50 m/s sea level ≈ 1530 Pa gives moderate response.
+                const q = getDynamicPressure(relSpeed, atm.density);
+                const qRef = 1500; // reference dynamic pressure (Pa)
+                const qFactor = Math.min(q / qRef, 3.0); // cap to avoid over-rotation
+
+                // Moment of inertia factor: longer/heavier rockets rotate slower
+                // Approximate MOI as m*L²/12 for a uniform rod
+                const moiFactor = Math.max(state.mass * rocketLength * rocketLength / 12, 0.001);
+                // Reference MOI for a small model rocket (~0.05 kg, ~0.3 m)
+                const moiRef = 0.05 * 0.3 * 0.3 / 12; // ≈ 0.000375
+                const moiRatio = moiRef / moiFactor; // <1 for heavier rockets = slower
+
+                // Base time constant: stable rockets respond in ~0.4s at qRef
+                // tau = base / (stabMargin * qFactor * moiRatio)
+                const baseTau = 0.6;
+                const effectiveTau = stabMargin > 0.05
+                    ? baseTau / (stabMargin * Math.max(qFactor, 0.05) * Math.min(moiRatio, 2.0))
+                    : 10.0; // near-neutral stability → very slow response
+                const tau = Math.max(effectiveTau, 0.15); // never faster than 0.15s
+
+                // Gradual ramp-up of weathercocking after leaving launch rod.
+                // This prevents the body axis from snapping to a new direction
+                // the instant the rocket clears the rod.
+                const rodClearRamp = Math.min(1.0, timeSinceRodClear / 0.8);
+
+                const blend = Math.min(1, dt / tau) * rodClearRamp;
                 bodyDirX += (relUx - bodyDirX) * blend;
                 bodyDirY += (relUy - bodyDirY) * blend;
                 bodyDirZ += (relUz - bodyDirZ) * blend;
+
                 // Re-normalize
                 const bLen = Math.sqrt(bodyDirX ** 2 + bodyDirY ** 2 + bodyDirZ ** 2);
                 if (bLen > 0.001) {
@@ -512,6 +548,12 @@ export function runSimulation(
             ? Math.asin(Math.min(1, Math.abs(relVelX * state.velY - relVelY * state.velX) / (relSpeed * Math.max(speed, 0.01))))
             : 0;
 
+        // Max airbrakes deployment fraction across all devices
+        let maxAbFraction = 0;
+        for (const abs of airbrakesStates) {
+            maxAbFraction = Math.max(maxAbFraction, abs.deployFraction);
+        }
+
         data.push({
             time: state.time,
             altitude: state.posY - (options.launchAltitude || 0),
@@ -533,6 +575,7 @@ export function runSimulation(
             cd,
             dynamicPressure: dynPressure,
             reynoldsNumber: 0,
+            airbrakesFraction: maxAbFraction,
         });
 
         prevVelY = state.velY;

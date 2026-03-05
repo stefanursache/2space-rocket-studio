@@ -105,6 +105,12 @@ export const SimulationPanel: React.FC = () => {
                             onChange={v => setSimulationOptions({ launchRodAngle: v })} />
                     </div>
                     <div className="sim-field">
+                        <label>Rod Direction (°)</label>
+                        <SimNumInput step="10" value={simulationOptions.launchRodDirection ?? 0}
+                            onChange={v => setSimulationOptions({ launchRodDirection: v })} />
+                        <span style={{ fontSize: '9px', color: '#6a7a8a', marginTop: 2 }}>0°=N, 90°=E, 180°=S, 270°=W</span>
+                    </div>
+                    <div className="sim-field">
                         <label>Launch Altitude (m)</label>
                         <SimNumInput step="100" value={simulationOptions.launchAltitude}
                             onChange={v => setSimulationOptions({ launchAltitude: v })} />

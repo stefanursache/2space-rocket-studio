@@ -6,7 +6,7 @@
 
 import {
     Rocket, RocketComponent, NoseCone, BodyTube, Transition,
-    TrapezoidFinSet, EllipticalFinSet, AeroForces, StabilityData, Stage, Motor
+    TrapezoidFinSet, EllipticalFinSet, Airbrakes, AeroForces, StabilityData, Stage, Motor
 } from '../types/rocket';
 import { getAtmosphere, getReynoldsNumber, getMachNumber } from './atmosphere';
 import { SURFACE_ROUGHNESS } from '../models/materials';
@@ -669,7 +669,7 @@ export function calculateDrag(
 
     if (velocity === 0 || refArea === 0) {
         const stab = calculateStability(rocket, motor, motorPosition, propellantMassRemaining, 0);
-        return { cd: 0, cdFriction: 0, cdPressure: 0, cdBase: 0, cnAlpha: stab.cnAlpha, cp: stab.cp };
+        return { cd: 0, cdFriction: 0, cdPressure: 0, cdBase: 0, cdAirbrakes: 0, cnAlpha: stab.cnAlpha, cp: stab.cp };
     }
 
     const Re = getReynoldsNumber(velocity, totalLength, atm.kinematicViscosity);
@@ -912,7 +912,13 @@ export function calculateDrag(
         cdBase *= 0.5;
     }
 
-    const cd = cdFriction + cdPressure + cdBase;
+    // === Airbrakes Drag (fully deployed, for static analysis) ===
+    // In the simulation loop, deployFraction is managed dynamically.
+    // Here we report the fully-deployed value so the analysis panel shows
+    // the maximum airbrakes contribution.
+    const cdAirbrakes = calculateAirbrakesDrag(rocket, refArea, 1.0);
+
+    const cd = cdFriction + cdPressure + cdBase + cdAirbrakes;
     const stab = calculateStability(rocket, motor, motorPosition, propellantMassRemaining, mach);
 
     return {
@@ -920,6 +926,7 @@ export function calculateDrag(
         cdFriction,
         cdPressure,
         cdBase,
+        cdAirbrakes,
         cnAlpha: stab.cnAlpha,
         cp: stab.cp,
     };
@@ -1010,26 +1017,117 @@ export function findAirbrakes(rocket: Rocket): RocketComponent[] {
 }
 
 /**
- * Calculate the additional drag coefficient from deployed airbrakes.
- * Uses flat plate drag model: Cd_airbrakes = Cd * n * A_projected / A_ref
- * where A_projected = bladeWidth * bladeHeight * sin(deployAngle)
+ * Compute the flat-plate drag coefficient of an airbrake blade from its geometry.
+ *
+ * Uses Hoerner's empirical data (Fluid Dynamic Drag, Ch. 3) for rectangular
+ * flat plates normal to the flow.  Because each blade is mounted flush against
+ * the body tube surface, the effective aerodynamic aspect ratio is doubled
+ * (mirror/ground-plane effect).
+ *
+ * Hoerner data (flat rectangular plate, AR = span/chord):
+ *   AR   Cd
+ *   1    1.17
+ *   2    1.19
+ *   5    1.20
+ *  10    1.29
+ *  20    1.49
+ *   ∞    1.98
+ *
+ * @param bladeHeight  Blade span (m) – the dimension that sticks out from the body
+ * @param bladeWidth   Blade chord (m) – streamwise dimension
+ * @returns            Flat-plate Cd for the blade (referenced to plate area)
+ */
+export function computeFlatPlateCd(bladeHeight: number, bladeWidth: number): number {
+    if (bladeWidth <= 0 || bladeHeight <= 0) return 1.17;
+
+    // Wall-mounted AR: effective AR is doubled because the body acts as a mirror plane
+    const arEff = 2 * bladeHeight / bladeWidth;
+
+    // Piecewise-linear interpolation of Hoerner's table
+    const table: [number, number][] = [
+        [0.5, 1.12],
+        [1.0, 1.17],
+        [2.0, 1.19],
+        [5.0, 1.20],
+        [10.0, 1.29],
+        [20.0, 1.49],
+        [40.0, 1.70],
+    ];
+
+    if (arEff <= table[0][0]) return table[0][1];
+    if (arEff >= table[table.length - 1][0]) {
+        // Asymptote toward 1.98 for infinite AR
+        const last = table[table.length - 1];
+        return last[1] + (1.98 - last[1]) * (1 - last[0] / arEff);
+    }
+
+    for (let i = 0; i < table.length - 1; i++) {
+        if (arEff >= table[i][0] && arEff <= table[i + 1][0]) {
+            const t = (arEff - table[i][0]) / (table[i + 1][0] - table[i][0]);
+            return table[i][1] + t * (table[i + 1][1] - table[i][1]);
+        }
+    }
+    return 1.17;
+}
+
+/**
+ * Get the effective flat-plate Cd for an airbrakes device.
+ * If cdAutoCalculate is true, computes from blade geometry using Hoerner's data.
+ * Otherwise uses the manually set comp.cd value.
+ */
+export function getEffectiveAirbrakeCd(ab: Airbrakes): number {
+    if (ab.cdAutoCalculate) {
+        return computeFlatPlateCd(ab.bladeHeight, ab.bladeWidth);
+    }
+    return ab.cd;
+}
+
+/**
+ * Calculate the drag coefficient contribution from a single airbrakes device.
+ * Uses flat plate drag model:
+ *   ΔCd = Cd_plate × bladeCount × (bladeWidth × bladeHeight × sin(deployAngle)) / A_ref
+ *
+ * @param ab           The airbrakes component
+ * @param refArea      Rocket reference area (body cross-section, m²)
+ * @param deployFraction  0..1, how far the blades are currently deployed
+ * @returns            The additive ΔCd to add to the rocket's total drag coefficient
+ */
+export function calculateSingleAirbrakeDrag(
+    ab: Airbrakes,
+    refArea: number,
+    deployFraction: number
+): number {
+    if (deployFraction <= 0 || refArea <= 0) return 0;
+    const angle = (ab.maxDeployAngle * Math.PI / 180) * deployFraction;
+    // Projected area of one blade normal to the flow
+    const perBladeProjected = ab.bladeWidth * ab.bladeHeight * Math.sin(angle);
+    // Use auto-calculated or manual Cd
+    const cdPlate = getEffectiveAirbrakeCd(ab);
+    // Total: Cd_plate × N_blades × A_projected_per_blade / A_ref
+    return cdPlate * ab.bladeCount * perBladeProjected / refArea;
+}
+
+/**
+ * Calculate the total additional drag coefficient from ALL deployed airbrakes.
+ * Each device uses its own deployFraction independently.
+ *
+ * @param rocket          The rocket design
+ * @param refArea         Rocket reference area (body cross-section, m²)
+ * @param deployFraction  0..1, uniform deploy fraction applied to every airbrake device
+ * @returns               The total additive ΔCd from all airbrake devices
  */
 export function calculateAirbrakesDrag(
     rocket: Rocket,
     refArea: number,
-    deployFraction: number // 0..1, how much the airbrakes are deployed
+    deployFraction: number
 ): number {
     if (deployFraction <= 0 || refArea <= 0) return 0;
-    let cdAirbrakes = 0;
+    let cdTotal = 0;
     const brakes = findAirbrakes(rocket);
     for (const b of brakes) {
         if (b.type === 'airbrakes') {
-            const ab = b as any;
-            const angle = (ab.maxDeployAngle * Math.PI / 180) * deployFraction;
-            // Projected area of one blade = chord * span * sin(angle)
-            const projectedArea = ab.bladeWidth * ab.bladeHeight * Math.sin(angle);
-            cdAirbrakes += ab.cd * ab.bladeCount * projectedArea / refArea;
+            cdTotal += calculateSingleAirbrakeDrag(b as Airbrakes, refArea, deployFraction);
         }
     }
-    return cdAirbrakes;
+    return cdTotal;
 }

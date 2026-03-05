@@ -584,13 +584,36 @@ const BulkheadEditor: React.FC<{ comp: Bulkhead; update: (u: any) => void }> = (
 
 // === Airbrakes Editor ===
 const AirbrakesEditor: React.FC<{ comp: Airbrakes; update: (u: any) => void; parentRadius: number }> = ({ comp, update, parentRadius }) => {
-    // Compute drag values from blade geometry
+    // Auto-compute flat-plate Cd from blade aspect ratio (Hoerner's data, wall-mounted)
+    const arEff = comp.bladeWidth > 0 ? 2 * comp.bladeHeight / comp.bladeWidth : 1;
+    // Piecewise-linear interpolation of Hoerner's table for flat plates
+    const hoernerTable: [number, number][] = [
+        [0.5, 1.12], [1.0, 1.17], [2.0, 1.19], [5.0, 1.20],
+        [10.0, 1.29], [20.0, 1.49], [40.0, 1.70],
+    ];
+    let autoCd = 1.17;
+    if (arEff <= hoernerTable[0][0]) {
+        autoCd = hoernerTable[0][1];
+    } else if (arEff >= hoernerTable[hoernerTable.length - 1][0]) {
+        const last = hoernerTable[hoernerTable.length - 1];
+        autoCd = last[1] + (1.98 - last[1]) * (1 - last[0] / arEff);
+    } else {
+        for (let i = 0; i < hoernerTable.length - 1; i++) {
+            if (arEff >= hoernerTable[i][0] && arEff <= hoernerTable[i + 1][0]) {
+                const t = (arEff - hoernerTable[i][0]) / (hoernerTable[i + 1][0] - hoernerTable[i][0]);
+                autoCd = hoernerTable[i][1] + t * (hoernerTable[i + 1][1] - hoernerTable[i][1]);
+                break;
+            }
+        }
+    }
+
+    const effectiveCd = comp.cdAutoCalculate !== false ? autoCd : comp.cd;
     const maxAngleRad = comp.maxDeployAngle * Math.PI / 180;
     const perBladeArea = comp.bladeWidth * comp.bladeHeight; // m²
     const perBladeProjected = perBladeArea * Math.sin(maxAngleRad); // projected normal to flow
     const totalProjectedArea = comp.bladeCount * perBladeProjected;
     const refArea = parentRadius > 0 ? Math.PI * parentRadius * parentRadius : 0;
-    const effectiveCd = refArea > 0 ? comp.cd * totalProjectedArea / refArea : 0;
+    const effectiveDeltaCd = refArea > 0 ? effectiveCd * totalProjectedArea / refArea : 0;
 
     return (
         <div className="editor-section">
@@ -605,7 +628,25 @@ const AirbrakesEditor: React.FC<{ comp: Airbrakes; update: (u: any) => void; par
             <NumField label="Max Deploy Angle" value={comp.maxDeployAngle} onChange={v => update({ maxDeployAngle: v })} step={1} min={0} max={90} unit="°" />
 
             <h4>Drag Coefficient</h4>
-            <NumField label="Flat Plate Cd (per blade)" value={comp.cd} onChange={v => update({ cd: v })} step={0.01} min={0} unit="" />
+            <div className="field" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <label style={{ flex: 1 }}>Auto-calculate Cd from geometry</label>
+                <input
+                    type="checkbox"
+                    checked={comp.cdAutoCalculate !== false}
+                    onChange={e => update({ cdAutoCalculate: e.target.checked })}
+                    style={{ width: 16, height: 16 }}
+                />
+            </div>
+            {comp.cdAutoCalculate !== false ? (
+                <div style={{ fontSize: '11px', color: '#8899aa', padding: '4px 8px', lineHeight: 1.8 }}>
+                    <div>📊 Effective AR = 2 × {(comp.bladeHeight * 1000).toFixed(1)} / {(comp.bladeWidth * 1000).toFixed(1)} = <strong style={{ color: '#aabbcc' }}>{arEff.toFixed(2)}</strong> (wall-mounted)</div>
+                    <div>📊 Hoerner flat-plate Cd = <strong style={{ color: '#f0c040' }}>{autoCd.toFixed(4)}</strong></div>
+                    <div style={{ opacity: 0.6, fontSize: '10px' }}>Based on Hoerner "Fluid Dynamic Drag" Ch.3 — rectangular flat plate normal to flow</div>
+                </div>
+            ) : (
+                <NumField label="Manual Flat Plate Cd" value={comp.cd} onChange={v => update({ cd: v })} step={0.01} min={0} unit="" />
+            )}
+
             <div className="airbrakes-drag-info" style={{ fontSize: '11px', color: '#8899aa', padding: '6px 8px', lineHeight: 1.8, background: 'rgba(255,255,255,0.03)', borderRadius: '4px', margin: '6px 0' }}>
                 <div>📐 Per-blade area: <strong style={{ color: '#aabbcc' }}>{(perBladeArea * 1e4).toFixed(2)} cm²</strong></div>
                 <div>📐 Projected area @ {comp.maxDeployAngle}°: <strong style={{ color: '#aabbcc' }}>{(perBladeProjected * 1e4).toFixed(2)} cm²</strong> / blade</div>
@@ -615,8 +656,10 @@ const AirbrakesEditor: React.FC<{ comp: Airbrakes; update: (u: any) => void; par
                         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: '4px', paddingTop: '4px' }}>
                             🎯 Body ref. area: <strong style={{ color: '#aabbcc' }}>{(refArea * 1e4).toFixed(2)} cm²</strong>
                         </div>
-                        <div>🎯 <strong style={{ color: '#f0c040' }}>Effective ΔCd = {effectiveCd.toFixed(4)}</strong></div>
+                        <div>🎯 Cd per blade: <strong style={{ color: '#aabbcc' }}>{effectiveCd.toFixed(4)}</strong> {comp.cdAutoCalculate !== false ? '(auto)' : '(manual)'}</div>
+                        <div>🎯 <strong style={{ color: '#f0c040' }}>Effective ΔCd = {effectiveDeltaCd.toFixed(4)}</strong></div>
                         <div style={{ opacity: 0.6, fontSize: '10px' }}>= Cd_plate × N_blades × A_projected / A_ref</div>
+                        <div style={{ opacity: 0.6, fontSize: '10px', color: '#7cc47c' }}>✅ This is automatically added to the rocket's total drag coefficient</div>
                     </>
                 )}
             </div>
