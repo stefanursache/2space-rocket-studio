@@ -4,8 +4,8 @@ import { RocketComponent, NoseCone, BodyTube, Transition, TrapezoidFinSet, Ellip
 import { BULK_MATERIALS, SURFACE_MATERIALS, LINE_MATERIALS } from '../models/materials';
 import { FreeformFinEditor } from './FreeformFinEditor';
 
-/** Find parent container length and absolute start position from nose tip */
-function getParentInfo(rocket: any, childId: string): { parentLength: number; parentStart: number } {
+/** Find parent container length, absolute start position from nose tip, and parent radius */
+function getParentInfo(rocket: any, childId: string): { parentLength: number; parentStart: number; parentRadius: number } {
     let xPos = 0;
     for (const stage of rocket.stages) {
         xPos = 0;
@@ -15,12 +15,12 @@ function getParentInfo(rocket: any, childId: string): { parentLength: number; pa
                     : comp.type === 'transition' ? comp.length : 0;
             if (comp.type === 'bodytube' && comp.children) {
                 for (const child of comp.children) {
-                    if (child.id === childId) return { parentLength: comp.length, parentStart: xPos };
+                    if (child.id === childId) return { parentLength: comp.length, parentStart: xPos, parentRadius: comp.outerRadius || 0 };
                     if (child.type === 'innertube' && child.children) {
                         for (const gc of child.children) {
                             if (gc.id === childId) {
                                 const itPos = typeof child.position === 'number' ? child.position : 0;
-                                return { parentLength: child.length, parentStart: xPos + itPos };
+                                return { parentLength: child.length, parentStart: xPos + itPos, parentRadius: child.outerRadius || 0 };
                             }
                         }
                     }
@@ -29,7 +29,7 @@ function getParentInfo(rocket: any, childId: string): { parentLength: number; pa
             xPos += cLen;
         }
     }
-    return { parentLength: 0, parentStart: 0 };
+    return { parentLength: 0, parentStart: 0, parentRadius: 0 };
 }
 
 export const ComponentEditor: React.FC = () => {
@@ -77,7 +77,7 @@ export const ComponentEditor: React.FC = () => {
 
     const parentInfo = 'position' in component
         ? getParentInfo(rocket, selectedComponentId)
-        : { parentLength: 0, parentStart: 0 };
+        : { parentLength: 0, parentStart: 0, parentRadius: 0 };
 
     return (
         <div className="component-editor">
@@ -130,7 +130,7 @@ export const ComponentEditor: React.FC = () => {
             {component.type === 'engineblock' && <EngineBlockEditor comp={component} update={update} />}
             {component.type === 'centeringring' && <CenteringRingEditor comp={component} update={update} />}
             {component.type === 'bulkhead' && <BulkheadEditor comp={component} update={update} />}
-            {component.type === 'airbrakes' && <AirbrakesEditor comp={component} update={update} />}
+            {component.type === 'airbrakes' && <AirbrakesEditor comp={component} update={update} parentRadius={parentInfo.parentRadius} />}
 
             {/* Position section for child components */}
             {'position' in component && (
@@ -583,36 +583,62 @@ const BulkheadEditor: React.FC<{ comp: Bulkhead; update: (u: any) => void }> = (
 );
 
 // === Airbrakes Editor ===
-const AirbrakesEditor: React.FC<{ comp: Airbrakes; update: (u: any) => void }> = ({ comp, update }) => (
-    <div className="editor-section">
-        <h4>Airbrakes Configuration</h4>
-        <div className="field">
-            <label>Number of Blades</label>
-            <input type="number" min={1} max={8} value={comp.bladeCount} onChange={e => update({ bladeCount: parseInt(e.target.value) || 3 })} />
-        </div>
-        <NumField label="Blade Height (Span)" value={comp.bladeHeight * 1000} onChange={v => update({ bladeHeight: v / 1000 })} />
-        <NumField label="Blade Width (Chord)" value={comp.bladeWidth * 1000} onChange={v => update({ bladeWidth: v / 1000 })} />
-        <NumField label="Blade Thickness" value={comp.bladeThickness * 1000} onChange={v => update({ bladeThickness: v / 1000 })} />
-        <NumField label="Max Deploy Angle" value={comp.maxDeployAngle} onChange={v => update({ maxDeployAngle: v })} step={1} min={0} max={90} unit="°" />
-        <NumField label="Drag Coefficient (Cd)" value={comp.cd} onChange={v => update({ cd: v })} step={0.01} unit="" />
+const AirbrakesEditor: React.FC<{ comp: Airbrakes; update: (u: any) => void; parentRadius: number }> = ({ comp, update, parentRadius }) => {
+    // Compute drag values from blade geometry
+    const maxAngleRad = comp.maxDeployAngle * Math.PI / 180;
+    const perBladeArea = comp.bladeWidth * comp.bladeHeight; // m²
+    const perBladeProjected = perBladeArea * Math.sin(maxAngleRad); // projected normal to flow
+    const totalProjectedArea = comp.bladeCount * perBladeProjected;
+    const refArea = parentRadius > 0 ? Math.PI * parentRadius * parentRadius : 0;
+    const effectiveCd = refArea > 0 ? comp.cd * totalProjectedArea / refArea : 0;
 
-        <h4>Deployment Settings</h4>
-        <div className="field">
-            <label>Deploy Event</label>
-            <select value={comp.deployEvent} onChange={e => update({ deployEvent: e.target.value })}>
-                <option value="altitude">At Altitude (ascending)</option>
-                <option value="burnout">After Motor Burnout</option>
-                <option value="apogee">At Apogee</option>
-                <option value="timer">Timer (from launch)</option>
-                <option value="never">Never (manual / disabled)</option>
-            </select>
+    return (
+        <div className="editor-section">
+            <h4>Airbrakes Configuration</h4>
+            <div className="field">
+                <label>Number of Blades</label>
+                <input type="number" min={1} max={8} value={comp.bladeCount} onChange={e => update({ bladeCount: parseInt(e.target.value) || 3 })} />
+            </div>
+            <NumField label="Blade Height (Span)" value={comp.bladeHeight * 1000} onChange={v => update({ bladeHeight: v / 1000 })} />
+            <NumField label="Blade Width (Chord)" value={comp.bladeWidth * 1000} onChange={v => update({ bladeWidth: v / 1000 })} />
+            <NumField label="Blade Thickness" value={comp.bladeThickness * 1000} onChange={v => update({ bladeThickness: v / 1000 })} />
+            <NumField label="Max Deploy Angle" value={comp.maxDeployAngle} onChange={v => update({ maxDeployAngle: v })} step={1} min={0} max={90} unit="°" />
+
+            <h4>Drag Coefficient</h4>
+            <NumField label="Flat Plate Cd (per blade)" value={comp.cd} onChange={v => update({ cd: v })} step={0.01} min={0} unit="" />
+            <div className="airbrakes-drag-info" style={{ fontSize: '11px', color: '#8899aa', padding: '6px 8px', lineHeight: 1.8, background: 'rgba(255,255,255,0.03)', borderRadius: '4px', margin: '6px 0' }}>
+                <div>📐 Per-blade area: <strong style={{ color: '#aabbcc' }}>{(perBladeArea * 1e4).toFixed(2)} cm²</strong></div>
+                <div>📐 Projected area @ {comp.maxDeployAngle}°: <strong style={{ color: '#aabbcc' }}>{(perBladeProjected * 1e4).toFixed(2)} cm²</strong> / blade</div>
+                <div>📐 Total projected ({comp.bladeCount} blades): <strong style={{ color: '#aabbcc' }}>{(totalProjectedArea * 1e4).toFixed(2)} cm²</strong></div>
+                {refArea > 0 && (
+                    <>
+                        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: '4px', paddingTop: '4px' }}>
+                            🎯 Body ref. area: <strong style={{ color: '#aabbcc' }}>{(refArea * 1e4).toFixed(2)} cm²</strong>
+                        </div>
+                        <div>🎯 <strong style={{ color: '#f0c040' }}>Effective ΔCd = {effectiveCd.toFixed(4)}</strong></div>
+                        <div style={{ opacity: 0.6, fontSize: '10px' }}>= Cd_plate × N_blades × A_projected / A_ref</div>
+                    </>
+                )}
+            </div>
+
+            <h4>Deployment Settings</h4>
+            <div className="field">
+                <label>Deploy Event</label>
+                <select value={comp.deployEvent} onChange={e => update({ deployEvent: e.target.value })}>
+                    <option value="altitude">At Altitude (ascending)</option>
+                    <option value="burnout">After Motor Burnout</option>
+                    <option value="apogee">At Apogee</option>
+                    <option value="timer">Timer (from launch)</option>
+                    <option value="never">Never (manual / disabled)</option>
+                </select>
+            </div>
+            {comp.deployEvent === 'altitude' && (
+                <NumField label="Deploy Altitude" value={comp.deployAltitude} onChange={v => update({ deployAltitude: v })} step={10} min={0} unit="m" />
+            )}
+            {(comp.deployEvent === 'burnout' || comp.deployEvent === 'apogee' || comp.deployEvent === 'timer') && (
+                <NumField label="Deploy Delay" value={comp.deployDelay} onChange={v => update({ deployDelay: v })} step={0.1} min={0} unit="s" />
+            )}
+            <NumField label="Deploy Speed (time to open)" value={comp.deploySpeed} onChange={v => update({ deploySpeed: v })} step={0.05} min={0.05} unit="s" />
         </div>
-        {comp.deployEvent === 'altitude' && (
-            <NumField label="Deploy Altitude" value={comp.deployAltitude} onChange={v => update({ deployAltitude: v })} step={10} min={0} unit="m" />
-        )}
-        {(comp.deployEvent === 'burnout' || comp.deployEvent === 'apogee' || comp.deployEvent === 'timer') && (
-            <NumField label="Deploy Delay" value={comp.deployDelay} onChange={v => update({ deployDelay: v })} step={0.1} min={0} unit="s" />
-        )}
-        <NumField label="Deploy Speed (time to open)" value={comp.deploySpeed} onChange={v => update({ deploySpeed: v })} step={0.05} min={0.05} unit="s" />
-    </div>
-);
+    );
+};

@@ -535,28 +535,27 @@ function renderChild(
             const ab = child as Airbrakes;
             const bladeH = ab.bladeHeight * scale;
             const bladeW = ab.bladeWidth * scale;
-            const abX = childX + bladeW * 0.5;
-            // Render blade shapes extending from the body tube surface (top and bottom)
-            // Show blades at ~45° angle to indicate they are deployable
-            const deployAngle = (ab.maxDeployAngle * Math.PI) / 180 * 0.6; // visual hint at 60% of max
-            const tipDx = Math.cos(deployAngle) * bladeW;
-            const tipDy = Math.sin(deployAngle) * bladeH;
+            const abX = childX;
+            // Show blades at the actual max deploy angle
+            const deployAngleRad = ab.maxDeployAngle * Math.PI / 180;
+            const outward = bladeH * Math.sin(deployAngleRad); // radial extension from body
+            const tilt = bladeH * Math.cos(deployAngleRad) * 0.25; // slight forward tilt hint
             return (
                 <g key={child.id} onClick={clk} style={{ cursor: 'pointer' }}>
-                    {/* Top blade */}
+                    {/* Top blade – hinged panel extending outward, tilt toward tail */}
                     <polygon
-                        points={`${abX},${centerY - bodyR} ${abX + tipDx},${centerY - bodyR - tipDy} ${abX + bladeW},${centerY - bodyR - tipDy * 0.7} ${abX + bladeW},${centerY - bodyR}`}
-                        fill={cStroke} fillOpacity={0.15} stroke={cStroke} strokeWidth={cSW} />
+                        points={`${abX},${centerY - bodyR} ${abX + tilt},${centerY - bodyR - outward} ${abX + bladeW + tilt},${centerY - bodyR - outward} ${abX + bladeW},${centerY - bodyR}`}
+                        fill={cStroke} fillOpacity={0.18} stroke={cStroke} strokeWidth={cSW} />
                     {/* Bottom blade */}
                     <polygon
-                        points={`${abX},${centerY + bodyR} ${abX + tipDx},${centerY + bodyR + tipDy} ${abX + bladeW},${centerY + bodyR + tipDy * 0.7} ${abX + bladeW},${centerY + bodyR}`}
-                        fill={cStroke} fillOpacity={0.15} stroke={cStroke} strokeWidth={cSW} />
-                    {/* Center marker line on body */}
+                        points={`${abX},${centerY + bodyR} ${abX + tilt},${centerY + bodyR + outward} ${abX + bladeW + tilt},${centerY + bodyR + outward} ${abX + bladeW},${centerY + bodyR}`}
+                        fill={cStroke} fillOpacity={0.18} stroke={cStroke} strokeWidth={cSW} />
+                    {/* Hinge lines on body surface */}
                     <line x1={abX} y1={centerY - bodyR} x2={abX + bladeW} y2={centerY - bodyR}
                         stroke={cStroke} strokeWidth={cSW * 0.6} strokeDasharray="2,1" />
                     <line x1={abX} y1={centerY + bodyR} x2={abX + bladeW} y2={centerY + bodyR}
                         stroke={cStroke} strokeWidth={cSW * 0.6} strokeDasharray="2,1" />
-                    {cSel && <CLabel x={abX + bladeW / 2} y={centerY - bodyR - tipDy - 18}
+                    {cSel && <CLabel x={abX + bladeW / 2} y={centerY - bodyR - outward - 18}
                         name={child.name} color={cStroke} mass={getCompMass(child)} />}
                 </g>
             );

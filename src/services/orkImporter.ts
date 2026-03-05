@@ -554,11 +554,13 @@ export async function importOrkFile(fileContent: string | ArrayBuffer): Promise<
     if (typeof fileContent === 'string') {
         xmlString = fileContent;
     } else {
-        // Check if it's a ZIP file (starts with PK)
         const bytes = new Uint8Array(fileContent);
         if (bytes[0] === 0x50 && bytes[1] === 0x4B) {
-            // ZIP file — try to extract the XML
+            // ZIP file (PK header) — extract the XML from the archive
             xmlString = await extractXmlFromZip(fileContent);
+        } else if (bytes[0] === 0x1F && bytes[1] === 0x8B) {
+            // GZIP compressed XML — decompress with DecompressionStream
+            xmlString = await decompressGzip(fileContent);
         } else {
             // Plain XML in ArrayBuffer
             xmlString = new TextDecoder('utf-8').decode(fileContent);
@@ -617,61 +619,166 @@ export async function importOrkFile(fileContent: string | ArrayBuffer): Promise<
     return { rocket, motorInfo, simulationOptions, flightReference, warnings };
 }
 
-// ---- ZIP extraction (minimal for .ork) ----------------------------
+// ---- Decompression helpers ----------------------------------------
+
+/** Decompress a deflate-raw stream using the browser DecompressionStream API */
+async function decompressDeflateRaw(data: Uint8Array): Promise<Uint8Array> {
+    if (typeof DecompressionStream === 'undefined') {
+        throw new Error(
+            'Your browser does not support DecompressionStream.\n' +
+            'Please use a modern browser (Chrome 80+, Firefox 113+, Safari 16.4+), ' +
+            'or save the .ork file as uncompressed XML from OpenRocket (File → Save As, uncheck compression).'
+        );
+    }
+    const ds = new (DecompressionStream as any)('deflate-raw');
+    const writer = ds.writable.getWriter();
+    writer.write(data);
+    writer.close();
+    const reader = ds.readable.getReader();
+    const chunks: Uint8Array[] = [];
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+    }
+    const totalLength = chunks.reduce((a: number, c: Uint8Array) => a + c.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+        result.set(chunk, offset);
+        offset += chunk.length;
+    }
+    return result;
+}
+
+/** Decompress a full GZIP buffer (0x1F 0x8B header) */
+async function decompressGzip(buffer: ArrayBuffer): Promise<string> {
+    if (typeof DecompressionStream === 'undefined') {
+        throw new Error(
+            'Your browser does not support DecompressionStream.\n' +
+            'Please use a modern browser or save the .ork as uncompressed XML.'
+        );
+    }
+    const ds = new (DecompressionStream as any)('gzip');
+    const writer = ds.writable.getWriter();
+    writer.write(new Uint8Array(buffer));
+    writer.close();
+    const reader = ds.readable.getReader();
+    const chunks: Uint8Array[] = [];
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+    }
+    const totalLength = chunks.reduce((a: number, c: Uint8Array) => a + c.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+        result.set(chunk, offset);
+        offset += chunk.length;
+    }
+    return new TextDecoder('utf-8').decode(result);
+}
+
+// ---- ZIP extraction (robust for .ork) -----------------------------
 
 async function extractXmlFromZip(buffer: ArrayBuffer): Promise<string> {
-    // .ork ZIP files typically contain a single rocket.ork XML file
-    // We use a minimal ZIP parser since we only need one file
+    // .ork ZIP files contain a single rocket.ork XML file.
+    // We use the Central Directory (at the end of the ZIP) to get
+    // correct file sizes — the local file header may have size=0
+    // when the data-descriptor flag (bit 3) is set.
 
     const view = new DataView(buffer);
     const bytes = new Uint8Array(buffer);
 
-    // Scan for local file headers (PK\x03\x04)
-    for (let i = 0; i < bytes.length - 30; i++) {
-        if (bytes[i] === 0x50 && bytes[i + 1] === 0x4B && bytes[i + 2] === 0x03 && bytes[i + 3] === 0x04) {
-            const fnameLen = view.getUint16(i + 26, true);
-            const extraLen = view.getUint16(i + 28, true);
-            const compressedSize = view.getUint32(i + 18, true);
-            const compressionMethod = view.getUint16(i + 8, true);
-            const fname = new TextDecoder().decode(bytes.slice(i + 30, i + 30 + fnameLen));
+    // --- Step 1: Find End of Central Directory (EOCD) record ---
+    // Signature: PK\x05\x06 — search backwards from end of file
+    let eocdOffset = -1;
+    for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) {
+        if (bytes[i] === 0x50 && bytes[i + 1] === 0x4B &&
+            bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) {
+            eocdOffset = i;
+            break;
+        }
+    }
+
+    if (eocdOffset >= 0) {
+        const cdEntries = view.getUint16(eocdOffset + 10, true);
+        const cdOffset = view.getUint32(eocdOffset + 16, true);
+
+        // --- Step 2: Walk the Central Directory entries ---
+        let pos = cdOffset;
+        for (let e = 0; e < cdEntries && pos + 46 <= bytes.length; e++) {
+            // Central directory header signature: PK\x01\x02
+            if (bytes[pos] !== 0x50 || bytes[pos + 1] !== 0x4B ||
+                bytes[pos + 2] !== 0x01 || bytes[pos + 3] !== 0x02) break;
+
+            const compressionMethod = view.getUint16(pos + 10, true);
+            const compressedSize = view.getUint32(pos + 20, true);
+            const fnameLen = view.getUint16(pos + 28, true);
+            const extraLen = view.getUint16(pos + 30, true);
+            const commentLen = view.getUint16(pos + 32, true);
+            const localHeaderOffset = view.getUint32(pos + 42, true);
+            const fname = new TextDecoder().decode(
+                bytes.slice(pos + 46, pos + 46 + fnameLen)
+            );
 
             if (fname.endsWith('.ork') || fname.endsWith('.xml') || fname === 'rocket.ork') {
+                // Read local file header to find data start
+                const localFnameLen = view.getUint16(localHeaderOffset + 26, true);
+                const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
+                const dataStart = localHeaderOffset + 30 + localFnameLen + localExtraLen;
+                const rawData = bytes.slice(dataStart, dataStart + compressedSize);
+
+                if (compressionMethod === 0) {
+                    return new TextDecoder('utf-8').decode(rawData);
+                } else if (compressionMethod === 8) {
+                    const decompressed = await decompressDeflateRaw(rawData);
+                    return new TextDecoder('utf-8').decode(decompressed);
+                }
+            }
+
+            pos += 46 + fnameLen + extraLen + commentLen;
+        }
+    }
+
+    // --- Fallback: scan local file headers (for non-standard ZIPs) ---
+    // Only works when compressedSize in local header is non-zero.
+    for (let i = 0; i < bytes.length - 30; i++) {
+        if (bytes[i] === 0x50 && bytes[i + 1] === 0x4B &&
+            bytes[i + 2] === 0x03 && bytes[i + 3] === 0x04) {
+            const compressionMethod = view.getUint16(i + 8, true);
+            const compressedSize = view.getUint32(i + 18, true);
+            const fnameLen = view.getUint16(i + 26, true);
+            const extraLen = view.getUint16(i + 28, true);
+            const fname = new TextDecoder().decode(
+                bytes.slice(i + 30, i + 30 + fnameLen)
+            );
+
+            if ((fname.endsWith('.ork') || fname.endsWith('.xml')) && compressedSize > 0) {
                 const dataStart = i + 30 + fnameLen + extraLen;
                 const rawData = bytes.slice(dataStart, dataStart + compressedSize);
 
                 if (compressionMethod === 0) {
-                    // Stored (no compression)
                     return new TextDecoder('utf-8').decode(rawData);
                 } else if (compressionMethod === 8) {
-                    // Deflate — use DecompressionStream if available
-                    if (typeof DecompressionStream !== 'undefined') {
-                        const ds = new DecompressionStream('deflate-raw');
-                        const writer = ds.writable.getWriter();
-                        writer.write(rawData);
-                        writer.close();
-                        const reader = ds.readable.getReader();
-                        const chunks: Uint8Array[] = [];
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-                            chunks.push(value);
-                        }
-                        const totalLength = chunks.reduce((a, c) => a + c.length, 0);
-                        const result = new Uint8Array(totalLength);
-                        let offset = 0;
-                        for (const chunk of chunks) {
-                            result.set(chunk, offset);
-                            offset += chunk.length;
-                        }
-                        return new TextDecoder('utf-8').decode(result);
-                    } else {
-                        throw new Error('This .ork file is compressed. Please save it as uncompressed XML from OpenRocket.');
-                    }
+                    const decompressed = await decompressDeflateRaw(rawData);
+                    return new TextDecoder('utf-8').decode(decompressed);
                 }
             }
         }
     }
-    throw new Error('Could not find XML content inside .ork ZIP file');
+
+    // --- Last resort: try treating the entire buffer as raw XML ---
+    const text = new TextDecoder('utf-8').decode(bytes);
+    if (text.includes('<openrocket') || text.includes('<rocket')) {
+        return text;
+    }
+
+    throw new Error(
+        'Could not find XML content inside .ork ZIP file.\n' +
+        'Try re-saving from OpenRocket as uncompressed XML.'
+    );
 }
 
 // ---- Motor matching -----------------------------------------------

@@ -642,14 +642,9 @@ export const useStore = create<AppState>((set, get) => ({
 
                     let importResult: OrkImportResult;
                     if (content instanceof ArrayBuffer) {
-                        // Check if XML or ZIP
-                        const bytes = new Uint8Array(content);
-                        if (bytes[0] === 0x3C) {
-                            // Starts with '<' — plain XML
-                            importResult = await importOrkFile(new TextDecoder('utf-8').decode(content));
-                        } else {
-                            importResult = await importOrkFile(content);
-                        }
+                        // Pass the ArrayBuffer directly — importOrkFile handles
+                        // ZIP (PK), GZIP (1F 8B), and plain XML detection
+                        importResult = await importOrkFile(content);
                     } else {
                         importResult = await importOrkFile(content as string);
                     }
