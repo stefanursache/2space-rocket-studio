@@ -203,6 +203,21 @@ export interface MassObject extends BaseComponent {
     position: number;
 }
 
+export interface Airbrakes extends BaseComponent {
+    type: 'airbrakes';
+    bladeCount: number;        // number of blades (typically 3 or 4)
+    bladeHeight: number;       // blade span when fully deployed (m)
+    bladeWidth: number;        // blade chord length (m)
+    bladeThickness: number;    // blade thickness (m)
+    maxDeployAngle: number;    // maximum deployment angle (degrees, 0=closed, 90=fully open)
+    cd: number;                // drag coefficient when fully deployed
+    deployEvent: 'altitude' | 'timer' | 'burnout' | 'apogee' | 'never';
+    deployAltitude: number;    // altitude trigger (m AGL)
+    deployDelay: number;       // delay after trigger event (s)
+    deploySpeed: number;       // deployment speed – time to fully open (s)
+    position: number;          // position along parent body tube (m)
+}
+
 export type RocketComponent =
     | NoseCone
     | BodyTube
@@ -219,7 +234,8 @@ export type RocketComponent =
     | Parachute
     | Streamer
     | ShockCord
-    | MassObject;
+    | MassObject
+    | Airbrakes;
 
 // ===========================
 // Stage & Rocket
@@ -335,7 +351,7 @@ export interface SimulationResult {
 export interface SimulationEvent {
     time: number;
     altitude: number;
-    type: 'launch' | 'launchrod' | 'burnout' | 'apogee' | 'deployment' | 'groundhit' | 'separation';
+    type: 'launch' | 'launchrod' | 'burnout' | 'apogee' | 'deployment' | 'airbrakes_deploy' | 'groundhit' | 'separation';
     description: string;
 }
 

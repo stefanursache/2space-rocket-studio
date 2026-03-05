@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
-import { RocketComponent, NoseCone, BodyTube, Transition, TrapezoidFinSet, EllipticalFinSet, FreeformFinSet, InnerTube, Parachute, Streamer, LaunchLug, MassObject, ShockCord, EngineBlock, CenteringRing, Bulkhead } from '../types/rocket';
+import { RocketComponent, NoseCone, BodyTube, Transition, TrapezoidFinSet, EllipticalFinSet, FreeformFinSet, InnerTube, Parachute, Streamer, LaunchLug, MassObject, ShockCord, EngineBlock, CenteringRing, Bulkhead, Airbrakes } from '../types/rocket';
 import { BULK_MATERIALS, SURFACE_MATERIALS, LINE_MATERIALS } from '../models/materials';
 import { FreeformFinEditor } from './FreeformFinEditor';
 
@@ -130,6 +130,7 @@ export const ComponentEditor: React.FC = () => {
             {component.type === 'engineblock' && <EngineBlockEditor comp={component} update={update} />}
             {component.type === 'centeringring' && <CenteringRingEditor comp={component} update={update} />}
             {component.type === 'bulkhead' && <BulkheadEditor comp={component} update={update} />}
+            {component.type === 'airbrakes' && <AirbrakesEditor comp={component} update={update} />}
 
             {/* Position section for child components */}
             {'position' in component && (
@@ -578,5 +579,40 @@ const BulkheadEditor: React.FC<{ comp: Bulkhead; update: (u: any) => void }> = (
         <h4>Bulkhead</h4>
         <NumField label="Length" value={comp.length * 1000} onChange={v => update({ length: v / 1000 })} />
         <NumField label="Diameter" value={comp.outerRadius * 2000} onChange={v => update({ outerRadius: v / 2000 })} />
+    </div>
+);
+
+// === Airbrakes Editor ===
+const AirbrakesEditor: React.FC<{ comp: Airbrakes; update: (u: any) => void }> = ({ comp, update }) => (
+    <div className="editor-section">
+        <h4>Airbrakes Configuration</h4>
+        <div className="field">
+            <label>Number of Blades</label>
+            <input type="number" min={1} max={8} value={comp.bladeCount} onChange={e => update({ bladeCount: parseInt(e.target.value) || 3 })} />
+        </div>
+        <NumField label="Blade Height (Span)" value={comp.bladeHeight * 1000} onChange={v => update({ bladeHeight: v / 1000 })} />
+        <NumField label="Blade Width (Chord)" value={comp.bladeWidth * 1000} onChange={v => update({ bladeWidth: v / 1000 })} />
+        <NumField label="Blade Thickness" value={comp.bladeThickness * 1000} onChange={v => update({ bladeThickness: v / 1000 })} />
+        <NumField label="Max Deploy Angle" value={comp.maxDeployAngle} onChange={v => update({ maxDeployAngle: v })} step={1} min={0} max={90} unit="°" />
+        <NumField label="Drag Coefficient (Cd)" value={comp.cd} onChange={v => update({ cd: v })} step={0.01} unit="" />
+
+        <h4>Deployment Settings</h4>
+        <div className="field">
+            <label>Deploy Event</label>
+            <select value={comp.deployEvent} onChange={e => update({ deployEvent: e.target.value })}>
+                <option value="altitude">At Altitude (ascending)</option>
+                <option value="burnout">After Motor Burnout</option>
+                <option value="apogee">At Apogee</option>
+                <option value="timer">Timer (from launch)</option>
+                <option value="never">Never (manual / disabled)</option>
+            </select>
+        </div>
+        {comp.deployEvent === 'altitude' && (
+            <NumField label="Deploy Altitude" value={comp.deployAltitude} onChange={v => update({ deployAltitude: v })} step={10} min={0} unit="m" />
+        )}
+        {(comp.deployEvent === 'burnout' || comp.deployEvent === 'apogee' || comp.deployEvent === 'timer') && (
+            <NumField label="Deploy Delay" value={comp.deployDelay} onChange={v => update({ deployDelay: v })} step={0.1} min={0} unit="s" />
+        )}
+        <NumField label="Deploy Speed (time to open)" value={comp.deploySpeed} onChange={v => update({ deploySpeed: v })} step={0.05} min={0.05} unit="s" />
     </div>
 );

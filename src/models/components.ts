@@ -3,7 +3,7 @@ import {
     NoseCone, BodyTube, Transition, TrapezoidFinSet, EllipticalFinSet,
     FreeformFinSet, InnerTube, EngineBlock, CenteringRing, Bulkhead,
     LaunchLug, Parachute, Streamer, ShockCord, MassObject,
-    TubeCoupler, RocketComponent, Stage, Rocket
+    TubeCoupler, Airbrakes, RocketComponent, Stage, Rocket
 } from '../types/rocket';
 import { getDefaultBulkMaterial, getDefaultSurfaceMaterial, getDefaultLineMaterial } from './materials';
 
@@ -199,6 +199,26 @@ export function createMassObject(): MassObject {
     };
 }
 
+export function createAirbrakes(): Airbrakes {
+    return {
+        id: uuid(), type: 'airbrakes', name: 'Airbrakes',
+        massOverridden: false, cgOverridden: false, cdOverridden: false,
+        material: { name: 'Aluminum 6061', density: 2700, type: 'bulk' },
+        finish: 'smooth_paint', color: '#e07020', comment: '',
+        bladeCount: 3,
+        bladeHeight: 0.015,     // 15mm span
+        bladeWidth: 0.020,      // 20mm chord
+        bladeThickness: 0.001,  // 1mm thick
+        maxDeployAngle: 60,     // degrees
+        cd: 1.17,               // flat plate drag coefficient
+        deployEvent: 'altitude',
+        deployAltitude: 300,    // m AGL
+        deployDelay: 0,         // s
+        deploySpeed: 0.3,       // 0.3s to fully open
+        position: 0,
+    };
+}
+
 export function createStage(name: string = 'Sustainer'): Stage {
     return {
         id: uuid(), name,
@@ -350,5 +370,5 @@ export function isInternalComponent(comp: RocketComponent): boolean {
 }
 
 export function isExternalComponent(comp: RocketComponent): boolean {
-    return ['trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'launchlug'].includes(comp.type);
+    return ['trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'launchlug', 'airbrakes'].includes(comp.type);
 }

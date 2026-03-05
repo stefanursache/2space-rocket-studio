@@ -25,8 +25,8 @@ function computeMotorPosition(rocket: Rocket, motor: Motor | null): number {
         for (const comp of stage.components) {
             const compLen = comp.type === 'nosecone' ? comp.length
                 : comp.type === 'bodytube' ? comp.length
-                : comp.type === 'transition' ? comp.length
-                : 0;
+                    : comp.type === 'transition' ? comp.length
+                        : 0;
 
             // Check if this top-level component is a motor mount (body tube)
             if (comp.type === 'bodytube' && comp.isMotorMount) {
@@ -296,6 +296,7 @@ export const useStore = create<AppState>((set, get) => ({
                     case 'shockcord': a.position = 0; break;
                     case 'launchlug': a.position = parentLength * 0.3; break;
                     case 'massobject': a.position = parentLength * 0.1; break;
+                    case 'airbrakes': a.position = Math.max(0, parentLength * 0.7); break;
                 }
             }
 

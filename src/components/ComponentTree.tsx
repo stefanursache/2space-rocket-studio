@@ -33,6 +33,7 @@ const COMP_ICONS: Record<string, string> = {
     streamer: '⚑',
     shockcord: '〰',
     massobject: '⊕',
+    airbrakes: '⌇',
 };
 
 function formatType(type: string): string {
@@ -53,6 +54,7 @@ function formatType(type: string): string {
         streamer: 'Streamer',
         shockcord: 'Shock Cord',
         massobject: 'Mass',
+        airbrakes: 'Airbrakes',
     };
     return map[type] || type;
 }

@@ -5,7 +5,7 @@ import {
     createTrapezoidFinSet, createEllipticalFinSet, createFreeformFinSet,
     createInnerTube, createEngineBlock, createCenteringRing, createBulkhead,
     createTubeCoupler, createLaunchLug, createParachute, createStreamer,
-    createShockCord, createMassObject
+    createShockCord, createMassObject, createAirbrakes
 } from '../models/components';
 import { RocketComponent } from '../types/rocket';
 
@@ -38,6 +38,7 @@ const COMPONENT_BUTTONS: ComponentButton[] = [
 
     // External components
     { label: 'Launch Lug', icon: '⊢', category: 'external', factory: createLaunchLug, requiresParent: true, tooltip: 'Add a launch lug' },
+    { label: 'Airbrakes', icon: '⌇', category: 'external', factory: createAirbrakes, requiresParent: true, tooltip: 'Add deployable airbrakes' },
 
     // Recovery
     { label: 'Parachute', icon: '☂', category: 'recovery', factory: createParachute, requiresParent: true, tooltip: 'Add a parachute' },

@@ -4,12 +4,13 @@
 
 import {
     Rocket, Motor, SimulationOptions, SimulationDataPoint,
-    SimulationResult, SimulationEvent, Parachute, Streamer
+    SimulationResult, SimulationEvent, Parachute, Streamer, Airbrakes
 } from '../types/rocket';
 import { getAtmosphere, getGravity, getDynamicPressure, getMachNumber, getWindSpeed, G0 } from './atmosphere';
 import {
     calculateDrag, calculateStability, calculateMassAndCG,
-    getReferenceArea, getRocketLength, findRecoveryDevices
+    getReferenceArea, getRocketLength, findRecoveryDevices,
+    findAirbrakes, calculateAirbrakesDrag
 } from './aerodynamics';
 import { interpolateThrust } from '../models/motors';
 import { v4 as uuid } from 'uuid';
@@ -130,6 +131,25 @@ export function runSimulation(
         }
     });
 
+    // Airbrakes — track each one individually
+    interface AirbrakesState {
+        device: Airbrakes;
+        triggered: boolean;    // whether the trigger condition has been met
+        triggerTime: number;   // time when trigger was met (-1 = not yet)
+        deployFraction: number; // 0..1, current deployment fraction
+    }
+
+    const airbrakesDevices = findAirbrakes(rocket);
+    const airbrakesStates: AirbrakesState[] = airbrakesDevices.map(dev => {
+        const ab = dev as Airbrakes;
+        return {
+            device: ab,
+            triggered: false,
+            triggerTime: -1,
+            deployFraction: 0,
+        };
+    });
+
     /** Compute current total recovery area and max Cd from deployed devices */
     function getActiveRecovery(): { area: number; cd: number } {
         let area = 0, cd = 0;
@@ -223,6 +243,65 @@ export function runSimulation(
                 cd = aeroForces.cd;
                 const q = getDynamicPressure(relSpeed, atm.density);
                 dragForce = q * cd * refArea;
+
+                // Airbrakes additional drag (additive to normal aero drag)
+                let maxDeployFraction = 0;
+                for (const abs of airbrakesStates) {
+                    if (abs.deployFraction > 0) {
+                        maxDeployFraction = Math.max(maxDeployFraction, abs.deployFraction);
+                    }
+                }
+                if (maxDeployFraction > 0) {
+                    const cdAB = calculateAirbrakesDrag(rocket, refArea, maxDeployFraction);
+                    cd += cdAB;
+                    dragForce += q * cdAB * refArea;
+                }
+            }
+        }
+
+        // Airbrakes deployment logic (before force application)
+        const altAGLForAB = state.posY - (options.launchAltitude || 0);
+        const burnoutTimeAB = motor ? motor.burnTime : 0;
+        for (const abs of airbrakesStates) {
+            const ab = abs.device;
+            if (ab.deployEvent === 'never') continue;
+
+            // Check trigger conditions
+            if (!abs.triggered) {
+                let shouldTrigger = false;
+                if (ab.deployEvent === 'altitude' && altAGLForAB >= ab.deployAltitude && !state.atApogee) {
+                    shouldTrigger = true; // ascending past target altitude
+                } else if (ab.deployEvent === 'burnout' && state.motorBurnedOut) {
+                    shouldTrigger = true;
+                } else if (ab.deployEvent === 'apogee' && state.atApogee) {
+                    shouldTrigger = true;
+                } else if (ab.deployEvent === 'timer' && state.time >= ab.deployDelay) {
+                    shouldTrigger = true;
+                }
+                if (shouldTrigger) {
+                    abs.triggered = true;
+                    abs.triggerTime = state.time;
+                }
+            }
+
+            // Ramp deployment after trigger + delay
+            if (abs.triggered && abs.deployFraction < 1) {
+                const delayOffset = ab.deployEvent === 'timer' ? 0 : ab.deployDelay;
+                const deployStart = abs.triggerTime + delayOffset;
+                if (state.time >= deployStart) {
+                    const elapsed = state.time - deployStart;
+                    const speed = ab.deploySpeed > 0 ? ab.deploySpeed : 0.3;
+                    abs.deployFraction = Math.min(1, elapsed / speed);
+
+                    // Fire event when deployment starts
+                    if (abs.deployFraction > 0 && elapsed <= dt * 1.5) {
+                        events.push({
+                            time: state.time, altitude: state.posY,
+                            type: 'airbrakes_deploy',
+                            description: `${ab.name} deploying (alt=${altAGLForAB.toFixed(0)} m AGL)`
+                        });
+                    }
+                }
             }
         }
 

@@ -991,3 +991,45 @@ export function findRecoveryDevices(rocket: Rocket): RocketComponent[] {
     }
     return devices;
 }
+
+// Find airbrakes components
+export function findAirbrakes(rocket: Rocket): RocketComponent[] {
+    const brakes: RocketComponent[] = [];
+    for (const stage of rocket.stages) {
+        for (const comp of stage.components) {
+            if (comp.type === 'bodytube' && comp.children) {
+                for (const child of comp.children) {
+                    if (child.type === 'airbrakes') {
+                        brakes.push(child);
+                    }
+                }
+            }
+        }
+    }
+    return brakes;
+}
+
+/**
+ * Calculate the additional drag coefficient from deployed airbrakes.
+ * Uses flat plate drag model: Cd_airbrakes = Cd * n * A_projected / A_ref
+ * where A_projected = bladeWidth * bladeHeight * sin(deployAngle)
+ */
+export function calculateAirbrakesDrag(
+    rocket: Rocket,
+    refArea: number,
+    deployFraction: number // 0..1, how much the airbrakes are deployed
+): number {
+    if (deployFraction <= 0 || refArea <= 0) return 0;
+    let cdAirbrakes = 0;
+    const brakes = findAirbrakes(rocket);
+    for (const b of brakes) {
+        if (b.type === 'airbrakes') {
+            const ab = b as any;
+            const angle = (ab.maxDeployAngle * Math.PI / 180) * deployFraction;
+            // Projected area of one blade = chord * span * sin(angle)
+            const projectedArea = ab.bladeWidth * ab.bladeHeight * Math.sin(angle);
+            cdAirbrakes += ab.cd * ab.bladeCount * projectedArea / refArea;
+        }
+    }
+    return cdAirbrakes;
+}
