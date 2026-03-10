@@ -1,14 +1,20 @@
 import mongoose from 'mongoose';
 
 // Serverless-safe cached connection
-// Module-level variables persist across warm invocations in the same container
+// Module-level promise prevents duplicate connections during cold start race conditions
+let connectionPromise: Promise<void> | null = null;
+
+export function isConnected(): boolean {
+    return mongoose.connection.readyState === 1;
+}
+
 export async function connectDB(): Promise<void> {
-    // Already connected or connecting
+    // Already connected — reuse
     if (mongoose.connection.readyState === 1) return;
-    if (mongoose.connection.readyState === 2) {
-        await new Promise<void>((resolve) => {
-            mongoose.connection.once('connected', resolve);
-        });
+
+    // Connection in progress — wait for it
+    if (connectionPromise) {
+        await connectionPromise;
         return;
     }
 
@@ -17,11 +23,23 @@ export async function connectDB(): Promise<void> {
         throw new Error('MONGODB_URI environment variable is not set');
     }
 
-    await mongoose.connect(uri, {
-        bufferCommands: true,
-        maxPoolSize: 5,           // keep small for serverless
-        serverSelectionTimeoutMS: 10000,
-        socketTimeoutMS: 45000,
+    console.log('🔌 Connecting to MongoDB Atlas...');
+
+    connectionPromise = mongoose.connect(uri, {
+        bufferCommands: false,      // CRITICAL for serverless: fail fast, don't buffer
+        maxPoolSize: 5,             // keep small for serverless
+        minPoolSize: 0,             // allow pool to drain on idle
+        maxIdleTimeMS: 10000,       // close idle connections after 10s (Atlas kills at 60s)
+        serverSelectionTimeoutMS: 15000,
+        socketTimeoutMS: 30000,
+        connectTimeoutMS: 15000,
+    }).then(() => {
+        console.log('✅ Connected to MongoDB Atlas (database: rocketstudio)');
+    }).catch((err) => {
+        console.error('❌ MongoDB connection failed:', err.message);
+        connectionPromise = null;   // allow retry on next request
+        throw err;
     });
-    console.log('✅ Connected to MongoDB Atlas (database: rocketstudio)');
+
+    await connectionPromise;
 }
