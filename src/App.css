@@ -74,16 +74,17 @@
 .toolbar-btn {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
+    gap: 5px;
+    padding: 5px 10px;
     border-radius: var(--radius-sm);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--text-secondary);
     background: transparent;
     border: 1px solid transparent;
-    transition: all 0.12s;
+    transition: all 0.15s;
     white-space: nowrap;
+    cursor: pointer;
 }
 
 .toolbar-btn:hover {
@@ -92,13 +93,22 @@
     border-color: var(--border);
 }
 
+.toolbar-btn:active {
+    transform: scale(0.97);
+}
+
 .btn-icon {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
+    opacity: 0.8;
+}
+
+.toolbar-btn:hover .btn-icon {
+    opacity: 1;
 }
 
 .btn-label {
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .rocket-name {

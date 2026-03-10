@@ -25,19 +25,19 @@ export const Toolbar: React.FC = () => {
                 <div className="toolbar-separator" />
 
                 <button className="toolbar-btn" onClick={newRocket} title="New Rocket">
-                    <span className="btn-icon">⊞</span>
+                    <span className="btn-icon">＋</span>
                     <span className="btn-label">New</span>
                 </button>
-                <button className="toolbar-btn" onClick={loadExampleRocket} title="Load Example">
-                    <span className="btn-icon">⊡</span>
+                <button className="toolbar-btn" onClick={loadExampleRocket} title="Load Example Rocket">
+                    <span className="btn-icon">✦</span>
                     <span className="btn-label">Example</span>
                 </button>
 
                 <div className="toolbar-separator" />
 
-                <button className="toolbar-btn" onClick={saveRocketToFile} title="Save rocket to file">
-                    <span className="btn-icon">💾</span>
-                    <span className="btn-label">Save</span>
+                <button className="toolbar-btn" onClick={saveRocketToFile} title="Download rocket as file">
+                    <span className="btn-icon">⤓</span>
+                    <span className="btn-label">Download</span>
                 </button>
                 <button className="toolbar-btn" onClick={loadRocketFromFile} title="Open rocket from file (.ork.json or .ork)">
                     <span className="btn-icon">📂</span>
