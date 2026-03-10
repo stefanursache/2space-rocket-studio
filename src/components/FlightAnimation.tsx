@@ -1,5 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { SimulationResult, SimulationDataPoint } from '../types/rocket';
+import { useStore } from '../store/useStore';
+import { toDisplay, unitLabel, fmtU, UnitSystem } from '../utils/units';
 
 interface FlightAnimationProps {
     result: SimulationResult;
@@ -46,6 +48,7 @@ export const FlightAnimation: React.FC<FlightAnimationProps> = ({ result }) => {
     const animRef = useRef<number>(0);
     const lastTimeRef = useRef<number>(0);
     const accumulatorRef = useRef<number>(0);
+    const us = useStore(s => s.unitSystem);
 
     const data = result.data;
     const maxFrame = data.length - 1;
@@ -140,7 +143,7 @@ export const FlightAnimation: React.FC<FlightAnimationProps> = ({ result }) => {
         canvas.style.height = H + 'px';
         const ctx = canvas.getContext('2d')!;
         ctx.scale(devicePixelRatio, devicePixelRatio);
-        drawScene(ctx, W, H, dp, data, frameIndex, maxAlt, deployedChuteCount, isBurning, hasLanded, events, result, showForces, trajectoryView);
+        drawScene(ctx, W, H, dp, data, frameIndex, maxAlt, deployedChuteCount, isBurning, hasLanded, events, result, showForces, trajectoryView, us);
     });
 
     /* Resize */
@@ -217,12 +220,12 @@ export const FlightAnimation: React.FC<FlightAnimationProps> = ({ result }) => {
                     </div>
                     <div className="fa-telemetry">
                         <span className="fa-tel-item"><b>t</b> {dp.time.toFixed(2)}s</span>
-                        <span className="fa-tel-item"><b>Alt</b> {dp.altitude.toFixed(1)}m</span>
-                        <span className="fa-tel-item"><b>V</b> {dp.velocity.toFixed(1)}m/s</span>
-                        <span className="fa-tel-item"><b>Vy</b> {dp.velocityY >= 0 ? '+' : ''}{dp.velocityY.toFixed(1)}m/s</span>
-                        <span className="fa-tel-item"><b>Thr</b> {dp.thrustForce.toFixed(1)}N</span>
-                        <span className="fa-tel-item"><b>Drag</b> {dp.dragForce.toFixed(2)}N</span>
-                        <span className="fa-tel-item"><b>Mass</b> {(dp.totalMass * 1000).toFixed(0)}g</span>
+                        <span className="fa-tel-item"><b>Alt</b> {toDisplay(dp.altitude, 'm_alt', us).toFixed(1)}{unitLabel('m_alt', us)}</span>
+                        <span className="fa-tel-item"><b>V</b> {toDisplay(dp.velocity, 'mps', us).toFixed(1)}{unitLabel('mps', us)}</span>
+                        <span className="fa-tel-item"><b>Vy</b> {dp.velocityY >= 0 ? '+' : ''}{toDisplay(dp.velocityY, 'mps', us).toFixed(1)}{unitLabel('mps', us)}</span>
+                        <span className="fa-tel-item"><b>Thr</b> {toDisplay(dp.thrustForce, 'N', us).toFixed(1)}{unitLabel('N', us)}</span>
+                        <span className="fa-tel-item"><b>Drag</b> {toDisplay(dp.dragForce, 'N', us).toFixed(2)}{unitLabel('N', us)}</span>
+                        <span className="fa-tel-item"><b>Mass</b> {toDisplay(dp.totalMass, 'g', us).toFixed(0)}{unitLabel('g', us)}</span>
                         <span className="fa-tel-item"><b>Mach</b> {dp.machNumber.toFixed(3)}</span>
                         {dp.airbrakesFraction > 0 && (
                             <span className="fa-tel-item" style={{ color: COL.airbrakes }}><b>AB</b> {(dp.airbrakesFraction * 100).toFixed(0)}%</span>
@@ -262,7 +265,7 @@ function drawScene(
     dp: SimulationDataPoint, data: SimulationDataPoint[], frameIndex: number,
     maxAlt: number, chuteCount: number, burning: boolean, landed: boolean,
     events: Array<{ type: string; frameIndex: number; time: number; description: string }>,
-    _result: SimulationResult, showForces: boolean, tv: TrajectoryView,
+    _result: SimulationResult, showForces: boolean, tv: TrajectoryView, us: UnitSystem,
 ) {
     const alt = dp.altitude;
     const ML = 48, MR = 52, MT = 16;
@@ -298,7 +301,7 @@ function drawScene(
         }
     }
 
-    drawGrid(ctx, W, groundY, viewMaxAlt, altToY, ML, MR);
+    drawGrid(ctx, W, groundY, viewMaxAlt, altToY, ML, MR, us);
 
     /* Ground */
     const gGrad = ctx.createLinearGradient(0, groundY, 0, H);
@@ -319,7 +322,7 @@ function drawScene(
     for (let d = -tv.maxAbsLateral * 2; d <= tv.maxAbsLateral * 2; d += Math.max(distStep, 0.5)) {
         const gx = centerX + d * lateralScale;
         if (gx < ML || gx > W - MR) continue;
-        ctx.fillText(d.toFixed(0) + 'm', gx, groundY + 14);
+        ctx.fillText(toDisplay(d, 'm_alt', us).toFixed(0) + unitLabel('m_alt', us), gx, groundY + 14);
         ctx.strokeStyle = 'rgba(80,130,60,0.15)';
         ctx.lineWidth = 0.5;
         ctx.beginPath(); ctx.moveTo(gx, groundY); ctx.lineTo(gx, groundY + 4); ctx.stroke();
@@ -339,7 +342,7 @@ function drawScene(
         ctx.beginPath(); ctx.moveTo(ax - 14, ay); ctx.lineTo(ax + 14, ay); ctx.stroke();
         ctx.setLineDash([]);
         ctx.font = MONO_SM; ctx.textAlign = 'center'; ctx.fillStyle = COL.apogeeMarker;
-        ctx.fillText('\u25B2 ' + apd.altitude.toFixed(0) + 'm', ax, ay - 8);
+        ctx.fillText('\u25B2 ' + toDisplay(apd.altitude, 'm_alt', us).toFixed(0) + unitLabel('m_alt', us), ax, ay - 8);
     }
 
     /* Rocket position (using projected lateral position) */
@@ -382,13 +385,13 @@ function drawScene(
 
     drawLaunchPad(ctx, centerX, groundY);
     drawAltBar(ctx, W, MR, MT, groundY, alt, viewMaxAlt);
-    drawHUD(ctx, dp, burning);
+    drawHUD(ctx, dp, burning, us);
     drawMiniPlot(ctx, data, frameIndex, W, groundY, MR);
 }
 
 /* ---- Grid ---- */
 function drawGrid(ctx: CanvasRenderingContext2D, W: number, groundY: number,
-    viewMaxAlt: number, altToY: (a: number) => number, ML: number, MR: number) {
+    viewMaxAlt: number, altToY: (a: number) => number, ML: number, MR: number, us: UnitSystem) {
     const major = niceStep(viewMaxAlt, 5);
     const minor = major / 5;
     ctx.strokeStyle = COL.gridMinor; ctx.lineWidth = 0.5;
@@ -402,7 +405,7 @@ function drawGrid(ctx: CanvasRenderingContext2D, W: number, groundY: number,
         ctx.strokeStyle = COL.gridMajor; ctx.lineWidth = 0.8;
         ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(W - MR, y); ctx.stroke();
         ctx.fillStyle = COL.gridLabel;
-        ctx.fillText(a.toFixed(0) + ' m', ML - 4, y + 3);
+        ctx.fillText(toDisplay(a, 'm_alt', us).toFixed(0) + ' ' + unitLabel('m_alt', us), ML - 4, y + 3);
     }
     ctx.strokeStyle = COL.gridMajor; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(ML, altToY(0)); ctx.lineTo(ML, altToY(viewMaxAlt)); ctx.stroke();
@@ -858,7 +861,7 @@ function drawAltBar(ctx: CanvasRenderingContext2D, W: number, MR: number, MT: nu
 }
 
 /* ---- HUD ---- */
-function drawHUD(ctx: CanvasRenderingContext2D, dp: SimulationDataPoint, burning: boolean) {
+function drawHUD(ctx: CanvasRenderingContext2D, dp: SimulationDataPoint, burning: boolean, us: UnitSystem) {
     const x = 54, y = 18, w = 155;
     const hasAB = dp.airbrakesFraction > 0;
     const hasMach = dp.machNumber > 0.9;
@@ -881,10 +884,11 @@ function drawHUD(ctx: CanvasRenderingContext2D, dp: SimulationDataPoint, burning
         ctx.font = MONO; ctx.fillStyle = color; ctx.textAlign = 'right'; ctx.fillText(value, x + w - 14, ly);
         ctx.textAlign = 'left'; ly += 13;
     };
-    row('ALT', dp.altitude.toFixed(1) + ' m', '#64b5f6');
-    row('VEL', dp.velocity.toFixed(1) + ' m/s', '#81c784');
-    row('Vy', (dp.velocityY >= 0 ? '+' : '') + dp.velocityY.toFixed(1) + ' m/s', dp.velocityY >= 0 ? '#81c784' : '#ef5350');
-    if (burning) row('THR', dp.thrustForce.toFixed(1) + ' N', '#ffb74d');
+    const aU = unitLabel('m_alt', us), vU = unitLabel('mps', us), fU = unitLabel('N', us);
+    row('ALT', toDisplay(dp.altitude, 'm_alt', us).toFixed(1) + ' ' + aU, '#64b5f6');
+    row('VEL', toDisplay(dp.velocity, 'mps', us).toFixed(1) + ' ' + vU, '#81c784');
+    row('Vy', (dp.velocityY >= 0 ? '+' : '') + toDisplay(dp.velocityY, 'mps', us).toFixed(1) + ' ' + vU, dp.velocityY >= 0 ? '#81c784' : '#ef5350');
+    if (burning) row('THR', toDisplay(dp.thrustForce, 'N', us).toFixed(1) + ' ' + fU, '#ffb74d');
     if (hasMach) {
         const machColor = dp.machNumber >= 1.0 ? '#ff6666' : '#ffcc66';
         row('MACH', dp.machNumber.toFixed(3) + (dp.machNumber >= 1.0 ? ' \u26A1' : ''), machColor);

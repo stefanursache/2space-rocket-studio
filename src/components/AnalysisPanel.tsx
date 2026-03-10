@@ -3,11 +3,12 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { useStore } from '../store/useStore';
 import { calculateStability, calculateDrag, getComponentPositions, getRocketLength, getMaxRadius, getReferenceArea, findAirbrakes } from '../physics/aerodynamics';
 import { getAtmosphere, getDynamicPressure } from '../physics/atmosphere';
+import { fmtU, fmt, unitLabel, toDisplay } from '../utils/units';
 
 const COLORS = ['#2196F3', '#4CAF50', '#FF9800', '#f44336', '#9C27B0', '#00BCD4', '#FF5722', '#795548', '#607D8B', '#E91E63'];
 
 export const AnalysisPanel: React.FC = () => {
-    const { rocket, stability, selectedMotor } = useStore();
+    const { rocket, stability, selectedMotor, unitSystem: us } = useStore();
     const motorPosition = useStore(s => s.motorPosition);
 
     const analysis = useMemo(() => {
@@ -22,7 +23,7 @@ export const AnalysisPanel: React.FC = () => {
         function collectMass(components: any[], depth: number = 0) {
             for (const comp of components) {
                 if (comp.mass > 0) {
-                    massItems.push({ name: comp.name, mass: comp.mass * 1000, type: comp.type }); // grams
+                    massItems.push({ name: comp.name, mass: comp.mass, type: comp.type }); // kilograms (SI)
                 }
                 if (comp.children) {
                     collectMass(comp.children, depth + 1);
@@ -36,7 +37,7 @@ export const AnalysisPanel: React.FC = () => {
 
         // Add motor mass if selected
         if (selectedMotor) {
-            massItems.push({ name: selectedMotor.designation + ' (Motor)', mass: selectedMotor.totalMass * 1000, type: 'motor' });
+            massItems.push({ name: selectedMotor.designation + ' (Motor)', mass: selectedMotor.totalMass, type: 'motor' });
         }
 
         const totalMass = massItems.reduce((s, m) => s + m.mass, 0);
@@ -95,6 +96,13 @@ export const AnalysisPanel: React.FC = () => {
         };
     }, [rocket, stability, selectedMotor]);
 
+    // Convert geometry lengths for display
+    const displayGeometryData = analysis.geometryData.map(g => ({
+        ...g,
+        length: parseFloat(toDisplay(g.length / 100, 'cm', us).toFixed(1)),
+        position: parseFloat(toDisplay(g.position / 100, 'cm', us).toFixed(1)),
+    }));
+
     return (
         <div className="analysis-panel">
             <h2>Rocket Analysis</h2>
@@ -105,15 +113,15 @@ export const AnalysisPanel: React.FC = () => {
                 <div className="analysis-grid">
                     <div className="analysis-item">
                         <span className="a-label">Total Length</span>
-                        <span className="a-value">{(analysis.totalLength * 100).toFixed(1)} cm</span>
+                        <span className="a-value">{fmtU(analysis.totalLength, 'cm', us)}</span>
                     </div>
                     <div className="analysis-item">
                         <span className="a-label">Max Diameter</span>
-                        <span className="a-value">{(analysis.maxRadius * 200).toFixed(1)} mm</span>
+                        <span className="a-value">{fmtU(analysis.maxRadius * 2, 'mm', us)}</span>
                     </div>
                     <div className="analysis-item">
                         <span className="a-label">Reference Area</span>
-                        <span className="a-value">{(analysis.refArea * 10000).toFixed(2)} cm²</span>
+                        <span className="a-value">{fmtU(analysis.refArea, 'cm2', us)}</span>
                     </div>
                     <div className="analysis-item">
                         <span className="a-label">Fineness Ratio</span>
@@ -124,11 +132,11 @@ export const AnalysisPanel: React.FC = () => {
                 {/* Component lengths */}
                 {analysis.geometryData.length > 0 && (
                     <ResponsiveContainer width="100%" height={200}>
-                        <BarChart data={analysis.geometryData} layout="vertical">
+                        <BarChart data={displayGeometryData} layout="vertical">
                             <CartesianGrid strokeDasharray="3 3" stroke="#2d323a" />
-                            <XAxis type="number" label={{ value: 'Length (cm)', position: 'insideBottomRight', offset: -5, fill: '#8b919c' }} stroke="#3a3f48" tick={{ fill: '#8b919c', fontSize: 11 }} />
+                            <XAxis type="number" label={{ value: `Length (${unitLabel('cm', us)})`, position: 'insideBottomRight', offset: -5, fill: '#8b919c' }} stroke="#3a3f48" tick={{ fill: '#8b919c', fontSize: 11 }} />
                             <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11, fill: '#8b919c' }} stroke="#3a3f48" />
-                            <Tooltip formatter={(v: number) => [`${v.toFixed(1)} cm`, 'Length']} contentStyle={{ backgroundColor: '#282c34', border: '1px solid #3a3f48', borderRadius: '4px', color: '#ced4de' }} />
+                            <Tooltip formatter={(v: number) => [`${v.toFixed(1)} ${unitLabel('cm', us)}`, 'Length']} contentStyle={{ backgroundColor: '#282c34', border: '1px solid #3a3f48', borderRadius: '4px', color: '#ced4de' }} />
                             <Bar dataKey="length" fill="#3b8eed" />
                         </BarChart>
                     </ResponsiveContainer>
@@ -141,7 +149,7 @@ export const AnalysisPanel: React.FC = () => {
                 <div className="analysis-grid">
                     <div className="analysis-item">
                         <span className="a-label">Total Mass</span>
-                        <span className="a-value">{analysis.totalMass.toFixed(1)} g</span>
+                        <span className="a-value">{fmtU(analysis.totalMass, 'g', us)}</span>
                     </div>
                     <div className="analysis-item">
                         <span className="a-label">Components</span>
@@ -155,7 +163,7 @@ export const AnalysisPanel: React.FC = () => {
                             <ResponsiveContainer width="100%" height={250}>
                                 <PieChart>
                                     <Pie
-                                        data={analysis.massItems.map(m => ({ name: m.name, value: parseFloat(m.mass.toFixed(1)) }))}
+                                        data={analysis.massItems.map(m => ({ name: m.name, value: parseFloat(toDisplay(m.mass, 'g', us).toFixed(1)) }))}
                                         dataKey="value"
                                         nameKey="name"
                                         cx="50%"
@@ -169,7 +177,7 @@ export const AnalysisPanel: React.FC = () => {
                                             <Cell key={i} fill={COLORS[i % COLORS.length]} />
                                         ))}
                                     </Pie>
-                                    <Tooltip formatter={(v: number) => [`${v.toFixed(1)} g`, 'Mass']} contentStyle={{ backgroundColor: '#282c34', border: '1px solid #3a3f48', borderRadius: '4px', color: '#ced4de' }} />
+                                    <Tooltip formatter={(v: number) => [`${v.toFixed(1)} ${unitLabel('g', us)}`, 'Mass']} contentStyle={{ backgroundColor: '#282c34', border: '1px solid #3a3f48', borderRadius: '4px', color: '#ced4de' }} />
                                 </PieChart>
                             </ResponsiveContainer>
                         </div>
@@ -177,7 +185,7 @@ export const AnalysisPanel: React.FC = () => {
                         <div className="mass-table">
                             <table>
                                 <thead>
-                                    <tr><th>Component</th><th>Mass (g)</th><th>%</th></tr>
+                                    <tr><th>Component</th><th>Mass ({unitLabel('g', us)})</th><th>%</th></tr>
                                 </thead>
                                 <tbody>
                                     {analysis.massItems.map((item, i) => (
@@ -186,7 +194,7 @@ export const AnalysisPanel: React.FC = () => {
                                                 <span className="mass-color" style={{ backgroundColor: COLORS[i % COLORS.length] }}></span>
                                                 {item.name}
                                             </td>
-                                            <td>{item.mass.toFixed(1)}</td>
+                                            <td>{toDisplay(item.mass, 'g', us).toFixed(1)}</td>
                                             <td>{analysis.totalMass > 0 ? ((item.mass / analysis.totalMass) * 100).toFixed(1) : '0'}%</td>
                                         </tr>
                                     ))}
@@ -205,11 +213,11 @@ export const AnalysisPanel: React.FC = () => {
                         <div className="analysis-grid">
                             <div className="analysis-item">
                                 <span className="a-label">CG Position</span>
-                                <span className="a-value">{(stability.cg * 100).toFixed(1)} cm</span>
+                                <span className="a-value">{fmtU(stability.cg, 'cm', us)}</span>
                             </div>
                             <div className="analysis-item">
                                 <span className="a-label">CP Position</span>
-                                <span className="a-value">{(stability.cp * 100).toFixed(1)} cm</span>
+                                <span className="a-value">{fmtU(stability.cp, 'cm', us)}</span>
                             </div>
                             <div className="analysis-item">
                                 <span className="a-label">Stability Margin</span>
@@ -217,7 +225,7 @@ export const AnalysisPanel: React.FC = () => {
                             </div>
                             <div className="analysis-item">
                                 <span className="a-label">Static Margin</span>
-                                <span className="a-value">{((stability.cp - stability.cg) * 100).toFixed(1)} cm</span>
+                                <span className="a-value">{fmtU(stability.cp - stability.cg, 'cm', us)}</span>
                             </div>
                         </div>
                         <div className={`stability-status ${stability.stabilityMargin < 1 ? 'unstable' :
@@ -237,7 +245,7 @@ export const AnalysisPanel: React.FC = () => {
 
             {/* Drag Analysis */}
             <div className="analysis-section">
-                <h3>Drag Analysis (at 50 m/s, sea level)</h3>
+                <h3>Drag Analysis (at {fmtU(50, 'mps', us)}, sea level)</h3>
                 <div className="analysis-grid">
                     <div className="analysis-item">
                         <span className="a-label">Total Cd</span>
@@ -245,7 +253,7 @@ export const AnalysisPanel: React.FC = () => {
                     </div>
                     <div className="analysis-item">
                         <span className="a-label">Drag Force</span>
-                        <span className="a-value">{(0.5 * 1.225 * 50 * 50 * analysis.refArea * analysis.totalCd).toFixed(2)} N</span>
+                        <span className="a-value">{fmtU(0.5 * 1.225 * 50 * 50 * analysis.refArea * analysis.totalCd, 'N', us)}</span>
                     </div>
                 </div>
                 {analysis.dragData.length > 0 && (
@@ -272,13 +280,13 @@ export const AnalysisPanel: React.FC = () => {
                         </div>
                         <div className="analysis-item">
                             <span className="a-label">Total Impulse</span>
-                            <span className="a-value">{selectedMotor.totalImpulse.toFixed(1)} Ns</span>
+                            <span className="a-value">{fmtU(selectedMotor.totalImpulse, 'Ns', us)}</span>
                         </div>
                         <div className="analysis-item">
                             <span className="a-label">Thrust-to-Weight</span>
                             <span className="a-value">
                                 {analysis.totalMass > 0 ?
-                                    (selectedMotor.averageThrust / (analysis.totalMass / 1000 * 9.81)).toFixed(1) + ':1'
+                                    (selectedMotor.averageThrust / (analysis.totalMass * 9.81)).toFixed(1) + ':1'
                                     : 'N/A'}
                             </span>
                         </div>
@@ -290,9 +298,9 @@ export const AnalysisPanel: React.FC = () => {
 
                     {/* Thrust to weight check */}
                     {analysis.totalMass > 0 && (
-                        <div className={`twr-status ${(selectedMotor.averageThrust / (analysis.totalMass / 1000 * 9.81)) < 5 ? 'low-twr' : 'good-twr'
+                        <div className={`twr-status ${(selectedMotor.averageThrust / (analysis.totalMass * 9.81)) < 5 ? 'low-twr' : 'good-twr'
                             }`}>
-                            {(selectedMotor.averageThrust / (analysis.totalMass / 1000 * 9.81)) < 5
+                            {(selectedMotor.averageThrust / (analysis.totalMass * 9.81)) < 5
                                 ? '⚠️ Low thrust-to-weight ratio. Recommended minimum is 5:1 for safe flight.'
                                 : '✅ Thrust-to-weight ratio is adequate for safe launch.'}
                         </div>

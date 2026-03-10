@@ -1,8 +1,9 @@
 import React from 'react';
 import { useStore } from '../store/useStore';
+import { fmt, fmtU, unitLabel } from '../utils/units';
 
 export const StabilityInfo: React.FC = () => {
-    const { stability, rocket, selectedMotor } = useStore();
+    const { stability, rocket, selectedMotor, unitSystem: us } = useStore();
 
     if (!stability) return null;
 
@@ -36,7 +37,7 @@ export const StabilityInfo: React.FC = () => {
                             <div
                                 className="cg-marker"
                                 style={{ left: `${(stability.cg / stability.totalLength) * 100}%` }}
-                                title={`CG: ${(stability.cg * 100).toFixed(1)} cm from nose`}
+                                title={`CG: ${fmtU(stability.cg, 'cm', us)} from nose`}
                             >
                                 <div className="marker-dot cg-dot" />
                                 <span className="marker-label">CG</span>
@@ -44,7 +45,7 @@ export const StabilityInfo: React.FC = () => {
                             <div
                                 className="cp-marker"
                                 style={{ left: `${(stability.cp / stability.totalLength) * 100}%` }}
-                                title={`CP: ${(stability.cp * 100).toFixed(1)} cm from nose`}
+                                title={`CP: ${fmtU(stability.cp, 'cm', us)} from nose`}
                             >
                                 <div className="marker-dot cp-dot" />
                                 <span className="marker-label">CP</span>
@@ -57,23 +58,23 @@ export const StabilityInfo: React.FC = () => {
             <div className="info-grid">
                 <div className="info-item">
                     <span className="info-label">Total Length</span>
-                    <span className="info-value">{(stability.totalLength * 100).toFixed(1)} cm</span>
+                    <span className="info-value">{fmtU(stability.totalLength, 'cm', us)}</span>
                 </div>
                 <div className="info-item">
                     <span className="info-label">Max Diameter</span>
-                    <span className="info-value">{(stability.referenceLength * 100).toFixed(2)} cm</span>
+                    <span className="info-value">{fmtU(stability.referenceLength, 'cm', us, 2)}</span>
                 </div>
                 <div className="info-item">
                     <span className="info-label">Total Mass</span>
-                    <span className="info-value">{(stability.totalMass * 1000).toFixed(1)} g</span>
+                    <span className="info-value">{fmtU(stability.totalMass, 'g', us)}</span>
                 </div>
                 <div className="info-item">
                     <span className="info-label">CG Location</span>
-                    <span className="info-value">{(stability.cg * 100).toFixed(2)} cm</span>
+                    <span className="info-value">{fmtU(stability.cg, 'cm', us, 2)}</span>
                 </div>
                 <div className="info-item">
                     <span className="info-label">CP Location</span>
-                    <span className="info-value">{(stability.cp * 100).toFixed(2)} cm</span>
+                    <span className="info-value">{fmtU(stability.cp, 'cm', us, 2)}</span>
                 </div>
                 <div className="info-item">
                     <span className="info-label">Stability</span>
@@ -85,7 +86,7 @@ export const StabilityInfo: React.FC = () => {
                 </div>
                 <div className="info-item">
                     <span className="info-label">Ref. Area</span>
-                    <span className="info-value">{(stability.referenceArea * 1e4).toFixed(3)} cm²</span>
+                    <span className="info-value">{fmtU(stability.referenceArea, 'cm2', us)}</span>
                 </div>
                 {selectedMotor && (
                     <>
@@ -95,7 +96,7 @@ export const StabilityInfo: React.FC = () => {
                         </div>
                         <div className="info-item">
                             <span className="info-label">Total Impulse</span>
-                            <span className="info-value">{selectedMotor.totalImpulse.toFixed(1)} Ns</span>
+                            <span className="info-value">{fmtU(selectedMotor.totalImpulse, 'Ns', us)}</span>
                         </div>
                     </>
                 )}

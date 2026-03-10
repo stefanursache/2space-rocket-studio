@@ -3,6 +3,7 @@ import { useStore } from '../store/useStore';
 import { RocketComponent, NoseCone, BodyTube, Transition, TrapezoidFinSet, EllipticalFinSet, FreeformFinSet, InnerTube, Parachute, Streamer, LaunchLug, MassObject, ShockCord, EngineBlock, CenteringRing, Bulkhead, Airbrakes } from '../types/rocket';
 import { BULK_MATERIALS, SURFACE_MATERIALS, LINE_MATERIALS } from '../models/materials';
 import { FreeformFinEditor } from './FreeformFinEditor';
+import { toDisplay, toSI, unitLabel, UnitSystem } from '../utils/units';
 
 /** Find parent container length, absolute start position from nose tip, and parent radius */
 function getParentInfo(rocket: any, childId: string): { parentLength: number; parentStart: number; parentRadius: number } {
@@ -172,7 +173,11 @@ export const ComponentEditor: React.FC = () => {
                     )}
                     <NumField label={`From parent ${(component.positionReference || 'front') === 'front' ? 'front' : 'aft'}`} value={(component as any).position * 1000} onChange={v => update({ position: v / 1000 } as any)} step={1} unit="mm" />
                     <div className="position-info">
-                        📍 From nose tip: <strong>{((parentInfo.parentStart + (component as any).position) * 1000).toFixed(1)} mm</strong>
+                        📍 From nose tip: <strong>{(() => {
+                            const us = useStore.getState().unitSystem;
+                            const siVal = parentInfo.parentStart + (component as any).position;
+                            return `${toDisplay(siVal, 'mm', us).toFixed(1)} ${unitLabel('mm', us)}`;
+                        })()}</strong>
                     </div>
                     {'radialAngle' in component && (
                         <NumField label="Radial Angle" value={(component as any).radialAngle} onChange={v => update({ radialAngle: v } as any)} unit="°" step={5} />
@@ -197,15 +202,7 @@ export const ComponentEditor: React.FC = () => {
                     </label>
                 </div>
                 {component.massOverridden && (
-                    <div className="field">
-                        <label>Mass (g)</label>
-                        <input
-                            type="number"
-                            step="0.1"
-                            value={((component.mass || 0) * 1000).toFixed(1)}
-                            onChange={e => update({ mass: parseFloat(e.target.value) / 1000 })}
-                        />
-                    </div>
+                    <NumField label="Mass" value={component.mass ? component.mass * 1000 : 0} onChange={v => update({ mass: v / 1000 })} unit="g" />
                 )}
                 <div className="field checkbox-field">
                     <label>
@@ -241,17 +238,33 @@ const NumField: React.FC<{
     max?: number;
     unit?: string;
 }> = ({ label, value, onChange, step = 0.1, min, max, unit = 'mm' }) => {
-    const decimals = unit === 'mm' ? 1 : 2;
+    const us = useStore(s => s.unitSystem);
+    // Map old hardcoded unit hints to unit categories for conversion
+    const displayUnit = (unit === 'mm' || unit === 'g' || unit === 'm') ? unitLabel(unit, us) : unit;
+    const decimals = displayUnit === 'in' ? 3 : displayUnit === 'oz' ? 2 : displayUnit === 'ft' ? 2 : unit === 'mm' ? 1 : 2;
     const [localVal, setLocalVal] = useState(value.toFixed(decimals));
     const [editing, setEditing] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
 
+    // Convert display value: if mm/g/m, apply unit conversion; otherwise pass through
+    const shouldConvert = unit === 'mm' || unit === 'g' || unit === 'm';
+    // value arrives as mm (for mm), grams (for g), or meters (for m)
+    // Convert to SI first: mm→m (/1000), g→kg (/1000), m→m (/1)
+    const toSIFactor = unit === 'mm' ? 1000 : unit === 'g' ? 1000 : 1;
+    const displayValue = shouldConvert ? toDisplay(value / toSIFactor, unit, us) : value;
+    // Inverse: display → the value format the parent expects (mm, g, or m)
+    const fromDisplay = (dv: number) => {
+        if (!shouldConvert) return dv;
+        const si = toSI(dv, unit, us);
+        return si * toSIFactor;
+    };
+
     // Sync from parent when not editing
     useEffect(() => {
         if (!editing) {
-            setLocalVal(value.toFixed(decimals));
+            setLocalVal(displayValue.toFixed(decimals));
         }
-    }, [value, decimals, editing]);
+    }, [displayValue, decimals, editing]);
 
     const commit = () => {
         setEditing(false);
@@ -260,16 +273,15 @@ const NumField: React.FC<{
             let clamped = parsed;
             if (min !== undefined) clamped = Math.max(min, clamped);
             if (max !== undefined) clamped = Math.min(max, clamped);
-            onChange(clamped);
+            onChange(fromDisplay(clamped));
         } else {
-            // Reset to current value if invalid
-            setLocalVal(value.toFixed(decimals));
+            setLocalVal(displayValue.toFixed(decimals));
         }
     };
 
     return (
         <div className="field">
-            <label>{label} ({unit})</label>
+            <label>{label} ({displayUnit})</label>
             <input
                 ref={inputRef}
                 type="number"
@@ -279,7 +291,6 @@ const NumField: React.FC<{
                 value={localVal}
                 onFocus={() => {
                     setEditing(true);
-                    // Select all text on focus for easy replacement
                     setTimeout(() => inputRef.current?.select(), 0);
                 }}
                 onChange={e => setLocalVal(e.target.value)}
@@ -291,7 +302,7 @@ const NumField: React.FC<{
                     }
                     if (e.key === 'Escape') {
                         setEditing(false);
-                        setLocalVal(value.toFixed(decimals));
+                        setLocalVal(displayValue.toFixed(decimals));
                         inputRef.current?.blur();
                     }
                 }}
@@ -302,11 +313,16 @@ const NumField: React.FC<{
 
 // Material editor
 const MaterialEditor: React.FC<{ component: RocketComponent; update: (u: any) => void }> = ({ component, update }) => {
+    const us = useStore(s => s.unitSystem);
     const materials = component.material.type === 'surface'
         ? SURFACE_MATERIALS
         : component.material.type === 'line'
             ? LINE_MATERIALS
             : BULK_MATERIALS;
+
+    const densityUnit = component.material.type === 'bulk' ? 'kg/m3'
+        : component.material.type === 'surface' ? 'kg/m2' : 'kg/m';
+    const densityLabel = unitLabel(densityUnit, us);
 
     return (
         <div className="editor-section">
@@ -320,11 +336,14 @@ const MaterialEditor: React.FC<{ component: RocketComponent; update: (u: any) =>
                         if (mat) update({ material: mat });
                     }}
                 >
-                    {materials.map(m => (
-                        <option key={m.name} value={m.name}>
-                            {m.name} ({m.density} {m.type === 'bulk' ? 'kg/m³' : m.type === 'surface' ? 'kg/m²' : 'kg/m'})
-                        </option>
-                    ))}
+                    {materials.map(m => {
+                        const dVal = toDisplay(m.density, densityUnit, us);
+                        return (
+                            <option key={m.name} value={m.name}>
+                                {m.name} ({dVal.toFixed(1)} {densityLabel})
+                            </option>
+                        );
+                    })}
                 </select>
             </div>
             <div className="field">

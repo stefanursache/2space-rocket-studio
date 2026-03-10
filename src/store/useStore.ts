@@ -3,6 +3,7 @@ import {
     Rocket, RocketComponent, Motor, SimulationOptions, SimulationResult,
     ViewMode, ViewOrientation, StabilityData
 } from '../types/rocket';
+import { UnitSystem } from '../utils/units';
 import { createDefaultRocket, createExampleRocket } from '../models/components';
 import { calculateStability } from '../physics/aerodynamics';
 import { runSimulation, getDefaultSimulationOptions } from '../physics/simulation';
@@ -101,6 +102,7 @@ interface AppState {
     showMotorSelector: boolean;
     showComponentEditor: boolean;
     show3DView: boolean;
+    unitSystem: UnitSystem;
 
     // Actions
     initMotors: () => Promise<void>;
@@ -127,6 +129,7 @@ interface AppState {
     setShowMotorSelector: (show: boolean) => void;
     setShowComponentEditor: (show: boolean) => void;
     setShow3DView: (show: boolean) => void;
+    setUnitSystem: (system: UnitSystem) => void;
     loadExampleRocket: () => void;
     newRocket: () => void;
     addStage: () => void;
@@ -157,6 +160,7 @@ export const useStore = create<AppState>((set, get) => ({
     showMotorSelector: false,
     showComponentEditor: false,
     show3DView: false,
+    unitSystem: (typeof window !== 'undefined' && localStorage.getItem('unitSystem') === 'us' ? 'us' : 'metric') as UnitSystem,
 
     /**
      * Load motors from IndexedDB cache on app start.
@@ -540,6 +544,10 @@ export const useStore = create<AppState>((set, get) => ({
     setShowMotorSelector: (show) => set({ showMotorSelector: show }),
     setShowComponentEditor: (show) => set({ showComponentEditor: show }),
     setShow3DView: (show) => set({ show3DView: show }),
+    setUnitSystem: (system) => {
+        localStorage.setItem('unitSystem', system);
+        set({ unitSystem: system });
+    },
 
     loadExampleRocket: () => {
         const rocket = createExampleRocket();

@@ -5,6 +5,7 @@ import { FlightAnimation } from './FlightAnimation';
 import { interpolateThrust } from '../models/motors';
 import { Motor } from '../types/rocket';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { toDisplay, toSI, unitLabel, fmtU, fmt, tempToDisplay, tempToSI, pressToDisplay, pressToSI, UnitSystem } from '../utils/units';
 
 /** Numeric input that uses local state while editing so the value doesn't reset */
 const SimNumInput: React.FC<{
@@ -38,7 +39,7 @@ export const SimulationPanel: React.FC = () => {
         rocket, simulationResults, activeSimulationId, isSimulating,
         runSim, deleteSimulation, setActiveSimulation,
         selectedMotor, setSelectedMotor, simulationOptions, setSimulationOptions,
-        motors,
+        motors, unitSystem: us,
     } = useStore();
 
     const [motorSearch, setMotorSearch] = useState('');
@@ -95,9 +96,9 @@ export const SimulationPanel: React.FC = () => {
                 <div className="sim-section">
                     <h4>Launch Conditions</h4>
                     <div className="sim-field">
-                        <label>Rod Length (m)</label>
-                        <SimNumInput step="0.1" value={simulationOptions.launchRodLength}
-                            onChange={v => setSimulationOptions({ launchRodLength: v })} />
+                        <label>Rod Length ({unitLabel('m', us)})</label>
+                        <SimNumInput step={us === 'us' ? 0.5 : 0.1} value={toDisplay(simulationOptions.launchRodLength, 'm', us)}
+                            onChange={v => setSimulationOptions({ launchRodLength: toSI(v, 'm', us) })} />
                     </div>
                     <div className="sim-field">
                         <label>Rod Angle (°)</label>
@@ -111,9 +112,9 @@ export const SimulationPanel: React.FC = () => {
                         <span style={{ fontSize: '9px', color: '#6a7a8a', marginTop: 2 }}>0°=N, 90°=E, 180°=S, 270°=W</span>
                     </div>
                     <div className="sim-field">
-                        <label>Launch Altitude (m)</label>
-                        <SimNumInput step="100" value={simulationOptions.launchAltitude}
-                            onChange={v => setSimulationOptions({ launchAltitude: v })} />
+                        <label>Launch Altitude ({unitLabel('m_alt', us)})</label>
+                        <SimNumInput step={us === 'us' ? 300 : 100} value={toDisplay(simulationOptions.launchAltitude, 'm_alt', us)}
+                            onChange={v => setSimulationOptions({ launchAltitude: toSI(v, 'm_alt', us) })} />
                     </div>
                     <div className="sim-field">
                         <label>Launch Latitude (°)</label>
@@ -125,28 +126,28 @@ export const SimulationPanel: React.FC = () => {
                 <div className="sim-section">
                     <h4>Atmosphere</h4>
                     <div className="sim-field">
-                        <label>Temperature (°C)</label>
-                        <SimNumInput step="1" value={Math.round((simulationOptions.launchTemperature - 273.15) * 100) / 100}
-                            onChange={v => setSimulationOptions({ launchTemperature: v + 273.15 })} fallback={15} />
+                        <label>Temperature ({us === 'us' ? '°F' : '°C'})</label>
+                        <SimNumInput step="1" value={Math.round(tempToDisplay(simulationOptions.launchTemperature, us) * 100) / 100}
+                            onChange={v => setSimulationOptions({ launchTemperature: tempToSI(v, us) })} fallback={us === 'us' ? 59 : 15} />
                     </div>
                     <div className="sim-field">
-                        <label>Pressure (hPa)</label>
-                        <SimNumInput step="1" value={Math.round(simulationOptions.launchPressure / 100 * 100) / 100}
-                            onChange={v => setSimulationOptions({ launchPressure: v * 100 })} fallback={1013} />
+                        <label>Pressure ({unitLabel('press', us)})</label>
+                        <SimNumInput step={us === 'us' ? 0.1 : 1} value={Math.round(pressToDisplay(simulationOptions.launchPressure, us) * 100) / 100}
+                            onChange={v => setSimulationOptions({ launchPressure: pressToSI(v, us) })} fallback={us === 'us' ? 29.92 : 1013} />
                     </div>
                 </div>
 
                 <div className="sim-section">
                     <h4>Wind</h4>
                     <div className="sim-field">
-                        <label>Avg Wind Speed (m/s)</label>
-                        <SimNumInput step="0.5" value={simulationOptions.windSpeedAvg}
-                            onChange={v => setSimulationOptions({ windSpeedAvg: v })} />
+                        <label>Avg Wind Speed ({unitLabel('wind', us)})</label>
+                        <SimNumInput step={us === 'us' ? 1 : 0.5} value={toDisplay(simulationOptions.windSpeedAvg, 'wind', us)}
+                            onChange={v => setSimulationOptions({ windSpeedAvg: toSI(v, 'wind', us) })} />
                     </div>
                     <div className="sim-field">
-                        <label>Wind Std Dev (m/s)</label>
-                        <SimNumInput step="0.1" value={simulationOptions.windSpeedStdDev}
-                            onChange={v => setSimulationOptions({ windSpeedStdDev: v })} />
+                        <label>Wind Std Dev ({unitLabel('wind', us)})</label>
+                        <SimNumInput step={us === 'us' ? 0.5 : 0.1} value={toDisplay(simulationOptions.windSpeedStdDev, 'wind', us)}
+                            onChange={v => setSimulationOptions({ windSpeedStdDev: toSI(v, 'wind', us) })} />
                     </div>
                     <div className="sim-field">
                         <label>Wind Direction (°)</label>
@@ -179,9 +180,9 @@ export const SimulationPanel: React.FC = () => {
                                     {showMotorList ? 'Hide' : 'Change'}
                                 </button>
                             </div>
-                            <span>{selectedMotor.manufacturer} | {selectedMotor.diameter}mm × {selectedMotor.length}mm</span>
-                            <span>Total impulse: {selectedMotor.totalImpulse.toFixed(1)} Ns | Avg thrust: {selectedMotor.averageThrust.toFixed(1)} N</span>
-                            <span>Burn: {selectedMotor.burnTime.toFixed(2)}s | Mass: {(selectedMotor.totalMass * 1000).toFixed(0)}g</span>
+                            <span>{selectedMotor.manufacturer} | {fmt(selectedMotor.diameter, 'motor_mm', us)} {unitLabel('motor_mm', us)} × {fmt(selectedMotor.length, 'motor_mm', us)} {unitLabel('motor_mm', us)}</span>
+                            <span>Total impulse: {fmtU(selectedMotor.totalImpulse, 'Ns', us)} | Avg thrust: {fmtU(selectedMotor.averageThrust, 'N', us)}</span>
+                            <span>Burn: {selectedMotor.burnTime.toFixed(2)}s | Mass: {fmtU(selectedMotor.totalMass, 'g', us)}</span>
                             {/* Inline thrust curve */}
                             <div style={{ width: '100%', height: 120, marginTop: 6 }}>
                                 <ResponsiveContainer width="100%" height="100%">
@@ -212,7 +213,7 @@ export const SimulationPanel: React.FC = () => {
                                 </select>
                                 <select value={motorDiameterFilter} onChange={e => setMotorDiameterFilter(Number(e.target.value))}>
                                     <option value={0}>All Ø</option>
-                                    {motorDiameters.map(d => <option key={d} value={d}>{d}mm</option>)}
+                                    {motorDiameters.map(d => <option key={d} value={d}>{fmt(d, 'motor_mm', us)}{unitLabel('motor_mm', us)}</option>)}
                                 </select>
                             </div>
                             <div className="motor-picker-list">
@@ -224,7 +225,7 @@ export const SimulationPanel: React.FC = () => {
                                     >
                                         <span className="mpk-desig">{motor.designation}</span>
                                         <span className="mpk-mfg">{motor.manufacturer}</span>
-                                        <span className="mpk-stats">{motor.totalImpulse.toFixed(0)}Ns · {motor.averageThrust.toFixed(0)}N · {motor.burnTime.toFixed(1)}s</span>
+                                        <span className="mpk-stats">{fmt(motor.totalImpulse, 'Ns', us)}{unitLabel('Ns', us)} · {fmt(motor.averageThrust, 'N', us)}{unitLabel('N', us)} · {motor.burnTime.toFixed(1)}s</span>
                                     </div>
                                 ))}
                                 {filteredMotors.length > 40 && (
@@ -262,9 +263,9 @@ export const SimulationPanel: React.FC = () => {
                                         <button className="sim-delete-btn" onClick={(e) => { e.stopPropagation(); deleteSimulation(result.id); }}>✕</button>
                                     </div>
                                     <div className="sim-result-stats">
-                                        <span>Apogee: {result.maxAltitude.toFixed(0)}m</span>
-                                        <span>Max V: {result.maxVelocity.toFixed(1)} m/s</span>
-                                        <span>Max Accel: {result.maxAcceleration.toFixed(1)} m/s²</span>
+                                        <span>Apogee: {fmtU(result.maxAltitude, 'm_alt', us)}</span>
+                                        <span>Max V: {fmtU(result.maxVelocity, 'mps', us)}</span>
+                                        <span>Max Accel: {fmtU(result.maxAcceleration, 'mps2', us)}</span>
                                     </div>
                                 </div>
                             ))}
@@ -293,11 +294,11 @@ export const SimulationPanel: React.FC = () => {
                                         <div className="sim-summary-grid">
                                             <div className="sum-item">
                                                 <span className="sum-label">Apogee</span>
-                                                <span className="sum-value">{activeResult.maxAltitude.toFixed(1)} m</span>
+                                                <span className="sum-value">{fmtU(activeResult.maxAltitude, 'm_alt', us)}</span>
                                             </div>
                                             <div className="sum-item">
                                                 <span className="sum-label">Max Speed</span>
-                                                <span className="sum-value">{activeResult.maxVelocity.toFixed(1)} m/s</span>
+                                                <span className="sum-value">{fmtU(activeResult.maxVelocity, 'mps', us)}</span>
                                             </div>
                                             <div className="sum-item">
                                                 <span className="sum-label">Max Mach</span>
@@ -305,7 +306,7 @@ export const SimulationPanel: React.FC = () => {
                                             </div>
                                             <div className="sum-item">
                                                 <span className="sum-label">Max Accel</span>
-                                                <span className="sum-value">{activeResult.maxAcceleration.toFixed(1)} m/s² ({(activeResult.maxAcceleration / 9.81).toFixed(1)}g)</span>
+                                                <span className="sum-value">{fmtU(activeResult.maxAcceleration, 'mps2', us)} ({(activeResult.maxAcceleration / 9.81).toFixed(1)}g)</span>
                                             </div>
                                             <div className="sum-item">
                                                 <span className="sum-label">Flight Time</span>
@@ -313,7 +314,7 @@ export const SimulationPanel: React.FC = () => {
                                             </div>
                                             <div className="sum-item">
                                                 <span className="sum-label">Ground Hit V</span>
-                                                <span className="sum-value">{activeResult.groundHitVelocity.toFixed(1)} m/s</span>
+                                                <span className="sum-value">{fmtU(activeResult.groundHitVelocity, 'mps', us)}</span>
                                             </div>
                                         </div>
 

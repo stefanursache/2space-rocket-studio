@@ -3,12 +3,13 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { useStore } from '../store/useStore';
 import { interpolateThrust } from '../models/motors';
 import { Motor } from '../types/rocket';
+import { toDisplay, unitLabel, fmt, fmtU } from '../utils/units';
 
 export const MotorSelector: React.FC = () => {
     const {
         selectedMotor, setSelectedMotor, setShowMotorSelector,
         motors, motorSyncStatus, motorSyncProgress, lastMotorSync, motorSyncError,
-        syncMotorsFromAPI, ensureThrustCurve,
+        syncMotorsFromAPI, ensureThrustCurve, unitSystem: us,
     } = useStore();
     const [filterClass, setFilterClass] = useState<string>('all');
     const [filterDiameter, setFilterDiameter] = useState<number>(0);
@@ -140,7 +141,7 @@ export const MotorSelector: React.FC = () => {
                                 <label>Diameter</label>
                                 <select value={filterDiameter} onChange={e => setFilterDiameter(Number(e.target.value))}>
                                     <option value={0}>All Diameters</option>
-                                    {diameters.map(d => <option key={d} value={d}>{d}mm</option>)}
+                                    {diameters.map(d => <option key={d} value={d}>{fmt(d, 'motor_mm', us)} {unitLabel('motor_mm', us)}</option>)}
                                 </select>
                             </div>
                             <div className="filter-group">
@@ -161,7 +162,7 @@ export const MotorSelector: React.FC = () => {
                                     <tr>
                                         <th>Designation</th>
                                         <th>Manufacturer</th>
-                                        <th>Ø (mm)</th>
+                                        <th>Ø ({unitLabel('motor_mm', us)})</th>
                                         <th>Length</th>
                                         <th>Total Impulse</th>
                                         <th>Avg Thrust</th>
@@ -180,13 +181,13 @@ export const MotorSelector: React.FC = () => {
                                         >
                                             <td className="motor-designation">{motor.designation}</td>
                                             <td>{motor.manufacturer}</td>
-                                            <td>{motor.diameter}</td>
-                                            <td>{motor.length}mm</td>
-                                            <td>{motor.totalImpulse.toFixed(1)} Ns</td>
-                                            <td>{motor.averageThrust.toFixed(1)} N</td>
-                                            <td>{motor.maxThrust.toFixed(1)} N</td>
+                                            <td>{fmt(motor.diameter, 'motor_mm', us)}</td>
+                                            <td>{fmt(motor.length, 'motor_mm', us)}{unitLabel('motor_mm', us)}</td>
+                                            <td>{fmtU(motor.totalImpulse, 'Ns', us)}</td>
+                                            <td>{fmtU(motor.averageThrust, 'N', us)}</td>
+                                            <td>{fmtU(motor.maxThrust, 'N', us)}</td>
                                             <td>{motor.burnTime.toFixed(2)}s</td>
-                                            <td>{(motor.totalMass * 1000).toFixed(1)}g</td>
+                                            <td>{fmtU(motor.totalMass, 'g', us)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -209,23 +210,23 @@ export const MotorSelector: React.FC = () => {
                                     </div>
                                     <div className="spec">
                                         <span className="spec-label">Diameter</span>
-                                        <span className="spec-value">{selectedPreview.diameter}mm</span>
+                                        <span className="spec-value">{fmt(selectedPreview.diameter, 'motor_mm', us)} {unitLabel('motor_mm', us)}</span>
                                     </div>
                                     <div className="spec">
                                         <span className="spec-label">Length</span>
-                                        <span className="spec-value">{selectedPreview.length}mm</span>
+                                        <span className="spec-value">{fmt(selectedPreview.length, 'motor_mm', us)} {unitLabel('motor_mm', us)}</span>
                                     </div>
                                     <div className="spec">
                                         <span className="spec-label">Total Impulse</span>
-                                        <span className="spec-value">{selectedPreview.totalImpulse.toFixed(1)} Ns</span>
+                                        <span className="spec-value">{fmtU(selectedPreview.totalImpulse, 'Ns', us)}</span>
                                     </div>
                                     <div className="spec">
                                         <span className="spec-label">Average Thrust</span>
-                                        <span className="spec-value">{selectedPreview.averageThrust.toFixed(1)} N</span>
+                                        <span className="spec-value">{fmtU(selectedPreview.averageThrust, 'N', us)}</span>
                                     </div>
                                     <div className="spec">
                                         <span className="spec-label">Max Thrust</span>
-                                        <span className="spec-value">{selectedPreview.maxThrust.toFixed(1)} N</span>
+                                        <span className="spec-value">{fmtU(selectedPreview.maxThrust, 'N', us)}</span>
                                     </div>
                                     <div className="spec">
                                         <span className="spec-label">Burn Time</span>
@@ -233,11 +234,11 @@ export const MotorSelector: React.FC = () => {
                                     </div>
                                     <div className="spec">
                                         <span className="spec-label">Propellant Mass</span>
-                                        <span className="spec-value">{(selectedPreview.propellantMass * 1000).toFixed(1)} g</span>
+                                        <span className="spec-value">{fmtU(selectedPreview.propellantMass, 'g', us)}</span>
                                     </div>
                                     <div className="spec">
                                         <span className="spec-label">Total Mass</span>
-                                        <span className="spec-value">{(selectedPreview.totalMass * 1000).toFixed(1)} g</span>
+                                        <span className="spec-value">{fmtU(selectedPreview.totalMass, 'g', us)}</span>
                                     </div>
                                     <div className="spec">
                                         <span className="spec-label">Delays</span>
@@ -261,8 +262,8 @@ export const MotorSelector: React.FC = () => {
                                             <LineChart data={thrustData}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                                                 <XAxis dataKey="time" label={{ value: 'Time (s)', position: 'insideBottomRight', offset: -5 }} />
-                                                <YAxis label={{ value: 'Thrust (N)', angle: -90, position: 'insideLeft' }} />
-                                                <Tooltip formatter={(v: number) => [`${v.toFixed(2)} N`, 'Thrust']}
+                                                <YAxis label={{ value: `Thrust (${unitLabel('N', us)})`, angle: -90, position: 'insideLeft' }} />
+                                                <Tooltip formatter={(v: number) => [`${v.toFixed(2)} ${unitLabel('N', us)}`, 'Thrust']}
                                                     labelFormatter={(l: number) => `t = ${l.toFixed(3)}s`} />
                                                 <Line type="monotone" dataKey="thrust" stroke="#ff5722" dot={false} strokeWidth={2} />
                                             </LineChart>

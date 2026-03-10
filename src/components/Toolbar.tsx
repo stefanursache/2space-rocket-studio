@@ -7,7 +7,7 @@ export const Toolbar: React.FC = () => {
         rocket, viewMode, setViewMode, show3DView, setShow3DView,
         viewOrientation, setViewOrientation, zoom, setZoom,
         newRocket, loadExampleRocket, setShowMotorSelector, selectedMotor,
-        saveRocketToFile, loadRocketFromFile,
+        saveRocketToFile, loadRocketFromFile, unitSystem, setUnitSystem,
     } = useStore();
 
     const { session, setShowAuthModal, setShowAdminPanel, setShowUserRockets, setShowUserSettings, setShowWorkspaces, logout, preferences, isAdminDeviceAuthorized } = useAuthStore();
@@ -49,6 +49,19 @@ export const Toolbar: React.FC = () => {
                 <div className="rocket-name">
                     <span className="label">Design:</span>
                     <strong>{rocket.name}</strong>
+                </div>
+
+                <div className="toolbar-separator" />
+
+                <div className="unit-toggle" title="Toggle metric / US customary units">
+                    <button
+                        className={`unit-btn ${unitSystem === 'metric' ? 'active' : ''}`}
+                        onClick={() => setUnitSystem('metric')}
+                    >Metric</button>
+                    <button
+                        className={`unit-btn ${unitSystem === 'us' ? 'active' : ''}`}
+                        onClick={() => setUnitSystem('us')}
+                    >US</button>
                 </div>
             </div>
 

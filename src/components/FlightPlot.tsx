@@ -4,6 +4,8 @@ import {
     ResponsiveContainer, ReferenceLine, ReferenceArea
 } from 'recharts';
 import { SimulationResult } from '../types/rocket';
+import { useStore } from '../store/useStore';
+import { toDisplay, unitLabel, UnitSystem } from '../utils/units';
 
 interface FlightPlotProps {
     result: SimulationResult;
@@ -13,6 +15,7 @@ type PlotType = 'altitude' | 'velocity' | 'acceleration' | 'drag' | 'mach' | 'th
 
 export const FlightPlot: React.FC<FlightPlotProps> = ({ result }) => {
     const [plotType, setPlotType] = useState<PlotType>('altitude');
+    const us = useStore(s => s.unitSystem);
 
     // Downsample data for performance if needed
     const rawData = result.data;
@@ -22,15 +25,15 @@ export const FlightPlot: React.FC<FlightPlotProps> = ({ result }) => {
 
     const plotData = data.map(dp => ({
         time: parseFloat(dp.time.toFixed(3)),
-        altitude: parseFloat(dp.altitude.toFixed(2)),
-        velocity: parseFloat(dp.velocity.toFixed(2)),
-        verticalVelocity: parseFloat(dp.velocityY.toFixed(2)),
-        horizontalVelocity: parseFloat(Math.sqrt(dp.velocityX ** 2 + dp.velocityZ ** 2).toFixed(2)),
-        acceleration: parseFloat(dp.acceleration.toFixed(2)),
+        altitude: parseFloat(toDisplay(dp.altitude, 'm_alt', us).toFixed(2)),
+        velocity: parseFloat(toDisplay(dp.velocity, 'mps', us).toFixed(2)),
+        verticalVelocity: parseFloat(toDisplay(dp.velocityY, 'mps', us).toFixed(2)),
+        horizontalVelocity: parseFloat(toDisplay(Math.sqrt(dp.velocityX ** 2 + dp.velocityZ ** 2), 'mps', us).toFixed(2)),
+        acceleration: parseFloat(toDisplay(dp.acceleration, 'mps2', us).toFixed(2)),
         mach: parseFloat(dp.machNumber.toFixed(4)),
-        drag: parseFloat(dp.dragForce.toFixed(3)),
-        thrust: parseFloat(dp.thrustForce.toFixed(3)),
-        mass: parseFloat((dp.totalMass * 1000).toFixed(1)),  // grams
+        drag: parseFloat(toDisplay(dp.dragForce, 'N', us).toFixed(3)),
+        thrust: parseFloat(toDisplay(dp.thrustForce, 'N', us).toFixed(3)),
+        mass: parseFloat(toDisplay(dp.totalMass, 'g', us).toFixed(1)),
         cd: parseFloat(dp.cd.toFixed(4)),
         dynamicPressure: parseFloat(dp.dynamicPressure.toFixed(2)),
     }));
@@ -40,36 +43,41 @@ export const FlightPlot: React.FC<FlightPlotProps> = ({ result }) => {
     const burnoutEvent = result.events.find(e => e.type === 'burnout');
     const recoveryEvent = result.events.find(e => e.type === 'deployment');
     const launchRodEvent = result.events.find(e => e.type === 'launchrod');
+    const aU = unitLabel('m_alt', us);
+    const vU = unitLabel('mps', us);
+    const accU = unitLabel('mps2', us);
+    const fU = unitLabel('N', us);
+    const mU = unitLabel('g', us);
     const plotConfigs: Record<string, any> = {
         altitude: {
             title: 'Altitude vs Time',
             lines: [
-                { key: 'altitude', color: '#2196F3', name: 'Altitude (m)', unit: 'm' }
+                { key: 'altitude', color: '#2196F3', name: `Altitude (${aU})`, unit: aU }
             ],
-            yLabel: 'Altitude (m)'
+            yLabel: `Altitude (${aU})`
         },
         velocity: {
             title: 'Velocity vs Time',
             lines: [
-                { key: 'velocity', color: '#4CAF50', name: 'Total Velocity (m/s)', unit: 'm/s' },
-                { key: 'verticalVelocity', color: '#FF9800', name: 'Vertical Velocity (m/s)', unit: 'm/s' },
+                { key: 'velocity', color: '#4CAF50', name: `Total Velocity (${vU})`, unit: vU },
+                { key: 'verticalVelocity', color: '#FF9800', name: `Vertical Velocity (${vU})`, unit: vU },
             ],
-            yLabel: 'Velocity (m/s)'
+            yLabel: `Velocity (${vU})`
         },
         acceleration: {
             title: 'Acceleration vs Time',
             lines: [
-                { key: 'acceleration', color: '#f44336', name: 'Acceleration (m/s²)', unit: 'm/s²' }
+                { key: 'acceleration', color: '#f44336', name: `Acceleration (${accU})`, unit: accU }
             ],
-            yLabel: 'Acceleration (m/s²)'
+            yLabel: `Acceleration (${accU})`
         },
         drag: {
             title: 'Drag & Dynamic Pressure vs Time',
             lines: [
-                { key: 'drag', color: '#9C27B0', name: 'Drag Force (N)', unit: 'N' },
+                { key: 'drag', color: '#9C27B0', name: `Drag Force (${fU})`, unit: fU },
                 { key: 'cd', color: '#FF5722', name: 'Drag Coefficient', unit: '' },
             ],
-            yLabel: 'Force (N) / Cd'
+            yLabel: `Force (${fU}) / Cd`
         },
         mach: {
             title: 'Mach Number vs Time',
@@ -81,23 +89,23 @@ export const FlightPlot: React.FC<FlightPlotProps> = ({ result }) => {
         thrust: {
             title: 'Thrust vs Time',
             lines: [
-                { key: 'thrust', color: '#FF5722', name: 'Thrust (N)', unit: 'N' }
+                { key: 'thrust', color: '#FF5722', name: `Thrust (${fU})`, unit: fU }
             ],
-            yLabel: 'Thrust (N)'
+            yLabel: `Thrust (${fU})`
         },
         mass: {
             title: 'Mass vs Time',
             lines: [
-                { key: 'mass', color: '#795548', name: 'Total Mass (g)', unit: 'g' }
+                { key: 'mass', color: '#795548', name: `Total Mass (${mU})`, unit: mU }
             ],
-            yLabel: 'Mass (g)'
+            yLabel: `Mass (${mU})`
         },
         all: {
             title: 'Combined Flight Data',
             lines: [
-                { key: 'altitude', color: '#2196F3', name: 'Altitude (m)', unit: 'm' },
-                { key: 'velocity', color: '#4CAF50', name: 'Velocity (m/s)', unit: 'm/s' },
-                { key: 'acceleration', color: '#f44336', name: 'Acceleration (m/s²)', unit: 'm/s²' },
+                { key: 'altitude', color: '#2196F3', name: `Altitude (${aU})`, unit: aU },
+                { key: 'velocity', color: '#4CAF50', name: `Velocity (${vU})`, unit: vU },
+                { key: 'acceleration', color: '#f44336', name: `Acceleration (${accU})`, unit: accU },
             ],
             yLabel: 'Value'
         },
@@ -180,7 +188,7 @@ export const FlightPlot: React.FC<FlightPlotProps> = ({ result }) => {
 
             {/* Data export */}
             <div className="plot-actions">
-                <button className="export-btn" onClick={() => exportCSV(result)}>
+                <button className="export-btn" onClick={() => exportCSV(result, us)}>
                     ↓ Export CSV
                 </button>
                 <span className="data-points-count">{result.data.length} data points</span>
@@ -189,13 +197,21 @@ export const FlightPlot: React.FC<FlightPlotProps> = ({ result }) => {
     );
 };
 
-function exportCSV(result: SimulationResult) {
-    const headers = ['Time (s)', 'Altitude (m)', 'Velocity (m/s)', 'Vertical Velocity (m/s)',
-        'Acceleration (m/s²)', 'Mach', 'Thrust (N)', 'Drag (N)', 'Mass (g)',
+function exportCSV(result: SimulationResult, us: UnitSystem) {
+    const aU = unitLabel('m_alt', us);
+    const vU = unitLabel('mps', us);
+    const accU = unitLabel('mps2', us);
+    const fU = unitLabel('N', us);
+    const mU = unitLabel('g', us);
+    const headers = [`Time (s)`, `Altitude (${aU})`, `Velocity (${vU})`, `Vertical Velocity (${vU})`,
+        `Acceleration (${accU})`, 'Mach', `Thrust (${fU})`, `Drag (${fU})`, `Mass (${mU})`,
         'Cd', 'Dynamic Pressure (Pa)'];
     const rows = result.data.map(dp =>
-        [dp.time, dp.altitude, dp.velocity, dp.velocityY,
-        dp.acceleration, dp.machNumber, dp.thrustForce, dp.dragForce, (dp.totalMass * 1000).toFixed(1),
+        [dp.time, toDisplay(dp.altitude, 'm_alt', us).toFixed(2),
+        toDisplay(dp.velocity, 'mps', us).toFixed(2), toDisplay(dp.velocityY, 'mps', us).toFixed(2),
+        toDisplay(dp.acceleration, 'mps2', us).toFixed(2), dp.machNumber,
+        toDisplay(dp.thrustForce, 'N', us).toFixed(3), toDisplay(dp.dragForce, 'N', us).toFixed(3),
+        toDisplay(dp.totalMass, 'g', us).toFixed(1),
         dp.cd, dp.dynamicPressure].join(',')
     );
 

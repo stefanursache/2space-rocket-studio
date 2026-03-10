@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react'
 import { useStore } from '../store/useStore';
 import { getComponentPositions, getMaxRadius, getRocketLength } from '../physics/aerodynamics';
 import { NoseCone, BodyTube, Transition, TrapezoidFinSet, EllipticalFinSet, FreeformFinSet, Airbrakes, Motor, RocketComponent } from '../types/rocket';
+import { toDisplay, unitLabel, fmtU, UnitSystem } from '../utils/units';
 
 /* =====================================================================
    2SPACE Rocket Studio – 2D Engineering Blueprint View
@@ -50,6 +51,7 @@ interface ViewTransform {
 
 export const RocketView2D: React.FC = () => {
     const { rocket, viewOrientation, zoom, stability, selectedComponentId, selectComponent, selectedMotor, motorPosition } = useStore();
+    const us = useStore(s => s.unitSystem);
     const positions = useMemo(() => getComponentPositions(rocket), [rocket]);
     const totalLength = useMemo(() => getRocketLength(rocket), [rocket]);
     const maxRadius = useMemo(() => getMaxRadius(rocket), [rocket]);
@@ -71,7 +73,7 @@ export const RocketView2D: React.FC = () => {
         return <SideViewCanvas positions={positions} rocket={rocket} totalLength={totalLength}
             maxRadius={maxRadius} baseZoom={zoom} stability={stability}
             selectedId={selectedComponentId} onSelect={selectComponent}
-            motor={selectedMotor} motorPosition={motorPosition} />;
+            motor={selectedMotor} motorPosition={motorPosition} us={us} />;
     }
     const scale = zoom * 600;
     return <BackView positions={positions} rocket={rocket} maxRadius={maxRadius} scale={scale} />;
@@ -99,8 +101,8 @@ function getCompMass(c: RocketComponent): number | undefined {
 const SideViewCanvas: React.FC<{
     positions: any[]; rocket: any; totalLength: number; maxRadius: number;
     baseZoom: number; stability: any; selectedId: string | null; onSelect: (id: string) => void;
-    motor: Motor | null; motorPosition: number;
-}> = ({ positions, rocket, totalLength, maxRadius, baseZoom, stability, selectedId, onSelect, motor, motorPosition }) => {
+    motor: Motor | null; motorPosition: number; us: UnitSystem;
+}> = ({ positions, rocket, totalLength, maxRadius, baseZoom, stability, selectedId, onSelect, motor, motorPosition, us }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [size, setSize] = useState({ w: 800, h: 500 });
     const [transform, setTransform] = useState<ViewTransform | null>(null);
@@ -251,13 +253,13 @@ const SideViewCanvas: React.FC<{
                 {/* Diameter callout */}
                 {maxRadius > 0 && (
                     <DiameterCallout x={ox + totalLength * s + 10} centerY={oy}
-                        radius={maxRadius * s} diameterMm={maxRadius * 2000} />
+                        radius={maxRadius * s} diameterM={maxRadius * 2} us={us} />
                 )}
 
                 {/* Total length dimension */}
                 <LengthDimension x1={ox} x2={ox + totalLength * s}
-                    y={oy + (maxRadius + finH) * s + 40} lengthMm={totalLength * 1000}
-                    centerY={oy} maxR={(maxRadius + finH) * s} />
+                    y={oy + (maxRadius + finH) * s + 40} lengthM={totalLength}
+                    centerY={oy} maxR={(maxRadius + finH) * s} us={us} />
 
                 {/* HUD: zoom %, hint text */}
                 <text x={w - 8} y={h - 8} textAnchor="end" fontSize="10" fill={T.gridText}
@@ -567,16 +569,19 @@ function renderChild(
 /* ---------- COMPONENT LABEL ---------- */
 const CLabel: React.FC<{ x: number; y: number; name: string; color: string; mass?: number }> = (
     { x, y, name, color, mass }
-) => (
-    <g pointerEvents="none">
-        <rect x={x - 28} y={y - 9} width={56} height={13} rx={6} fill={T.bg}
-            fillOpacity={0.85} stroke={color} strokeWidth={0.3} strokeOpacity={0.3} />
-        <text x={x} y={y} textAnchor="middle" fontSize="7" fill={color} fontFamily={FONT}
-            fontWeight="500" opacity={0.85}>{name}</text>
-        {mass !== undefined && <text x={x} y={y + 12} textAnchor="middle" fontSize="6"
-            fill={T.muted} fontFamily={FONT} opacity={0.6}>{(mass * 1000).toFixed(1)} g</text>}
-    </g>
-);
+) => {
+    const us = useStore(s => s.unitSystem);
+    return (
+        <g pointerEvents="none">
+            <rect x={x - 28} y={y - 9} width={56} height={13} rx={6} fill={T.bg}
+                fillOpacity={0.85} stroke={color} strokeWidth={0.3} strokeOpacity={0.3} />
+            <text x={x} y={y} textAnchor="middle" fontSize="7" fill={color} fontFamily={FONT}
+                fontWeight="500" opacity={0.85}>{name}</text>
+            {mass !== undefined && <text x={x} y={y + 12} textAnchor="middle" fontSize="6"
+                fill={T.muted} fontFamily={FONT} opacity={0.6}>{fmtU(mass, 'g', us)}</text>}
+        </g>
+    );
+};
 
 /* ---------- TRAPEZOIDAL FINS ---------- */
 const TrapFin2D: React.FC<{
@@ -705,10 +710,10 @@ const CPMarker: React.FC<{ x: number; centerY: number; maxR: number }> = ({ x, c
 
 /* ---------- DIAMETER CALLOUT ---------- */
 const DiameterCallout: React.FC<{
-    x: number; centerY: number; radius: number; diameterMm: number;
-}> = ({ x, centerY, radius, diameterMm }) => {
+    x: number; centerY: number; radius: number; diameterM: number; us: UnitSystem;
+}> = ({ x, centerY, radius, diameterM, us }) => {
     const ax = x + 6;
-    const label = `\u00D8 ${diameterMm.toFixed(0)} mm`;
+    const label = `\u00D8 ${fmtU(diameterM, 'mm', us)}`;
     const labelW = label.length * 4.2 + 8;
     return (
         <g>
@@ -726,10 +731,10 @@ const DiameterCallout: React.FC<{
 
 /* ---------- LENGTH DIMENSION ---------- */
 const LengthDimension: React.FC<{
-    x1: number; x2: number; y: number; lengthMm: number; centerY: number; maxR: number;
-}> = ({ x1, x2, y, lengthMm, centerY, maxR }) => {
+    x1: number; x2: number; y: number; lengthM: number; centerY: number; maxR: number; us: UnitSystem;
+}> = ({ x1, x2, y, lengthM, centerY, maxR, us }) => {
     const midX = (x1 + x2) / 2;
-    const label = `${lengthMm.toFixed(0)} mm`;
+    const label = fmtU(lengthM, 'mm', us);
     const labelW = label.length * 4.5 + 10;
     return (
         <g>

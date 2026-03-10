@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { RocketComponent } from '../types/rocket';
+import { toDisplay, toSI, unitLabel, fmtU, fmt } from '../utils/units';
 
 /** Numeric input with local editing state */
 const TreeNumInput: React.FC<{ value: number; onChange: (v: number) => void; step?: number }> = ({ value, onChange, step }) => {
@@ -171,9 +172,7 @@ const ComponentNode: React.FC<{
                     <div className="tree-meta">
                         <span className="tree-type">{formatType(component.type)}</span>
                         {'position' in component && !isTopLevel(component.type) && (
-                            <span className="tree-pos" title="Position from parent front">
-                                {((component as any).position * 1000).toFixed(0)}mm
-                            </span>
+                            <PositionLabel position={(component as any).position} />
                         )}
                     </div>
                 </div>
@@ -300,19 +299,10 @@ export const ComponentTree: React.FC = () => {
                     </button>
                 </div>
                 {selectedMotor && (
-                    <div className="tree-motor-stats">
-                        {selectedMotor.manufacturer} · {selectedMotor.totalImpulse.toFixed(0)} Ns · {selectedMotor.burnTime.toFixed(1)}s
-                    </div>
+                    <MotorStats motor={selectedMotor} />
                 )}
                 {selectedMotor && (
-                    <div className="tree-motor-position">
-                        <label>Position (mm from nose)</label>
-                        <TreeNumInput
-                            value={Math.round(motorPosition * 1000)}
-                            onChange={v => setMotorPosition(v / 1000)}
-                            step={1}
-                        />
-                    </div>
+                    <MotorPositionInput motorPosition={motorPosition} setMotorPosition={setMotorPosition} />
                 )}
             </div>
 
@@ -326,6 +316,40 @@ export const ComponentTree: React.FC = () => {
                     </button>
                 </div>
             )}
+        </div>
+    );
+};
+
+/* ---- Tiny sub-components that read unitSystem from the store ---- */
+
+const PositionLabel: React.FC<{ position: number }> = ({ position }) => {
+    const us = useStore(s => s.unitSystem);
+    return (
+        <span className="tree-pos" title="Position from parent front">
+            {fmt(position, 'mm', us)} {unitLabel('mm', us)}
+        </span>
+    );
+};
+
+const MotorStats: React.FC<{ motor: any }> = ({ motor }) => {
+    const us = useStore(s => s.unitSystem);
+    return (
+        <div className="tree-motor-stats">
+            {motor.manufacturer} · {fmtU(motor.totalImpulse, 'Ns', us)} · {motor.burnTime.toFixed(1)}s
+        </div>
+    );
+};
+
+const MotorPositionInput: React.FC<{ motorPosition: number; setMotorPosition: (v: number) => void }> = ({ motorPosition, setMotorPosition }) => {
+    const us = useStore(s => s.unitSystem);
+    return (
+        <div className="tree-motor-position">
+            <label>Position ({unitLabel('mm', us)} from nose)</label>
+            <TreeNumInput
+                value={parseFloat(toDisplay(motorPosition, 'mm', us).toFixed(1))}
+                onChange={v => setMotorPosition(toSI(v, 'mm', us))}
+                step={us === 'us' ? 0.1 : 1}
+            />
         </div>
     );
 };
