@@ -10,7 +10,7 @@ export const Toolbar: React.FC = () => {
         saveRocketToFile, loadRocketFromFile,
     } = useStore();
 
-    const { session, setShowAuthModal, setShowAdminPanel, setShowUserRockets, setShowUserSettings, logout, preferences, isAdminDeviceAuthorized } = useAuthStore();
+    const { session, setShowAuthModal, setShowAdminPanel, setShowUserRockets, setShowUserSettings, setShowWorkspaces, logout, preferences, isAdminDeviceAuthorized } = useAuthStore();
 
     const loginBtnColor = preferences?.loginButtonColor || '#3b8eed';
 
@@ -127,6 +127,12 @@ export const Toolbar: React.FC = () => {
                     <div className="toolbar-auth">
                         <button className="toolbar-auth-icon-btn rockets-btn" onClick={() => setShowUserRockets(true)} title="My Rockets">
                             🚀
+                        </button>
+
+                        <div className="toolbar-auth-divider" />
+
+                        <button className="toolbar-auth-icon-btn workspace-btn" onClick={() => setShowWorkspaces(true)} title="Workspaces">
+                            🏢
                         </button>
 
                         <div className="toolbar-auth-divider" />

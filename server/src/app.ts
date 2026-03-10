@@ -11,6 +11,7 @@ import rocketRoutes from './routes/rockets.js';
 import simulationRoutes from './routes/simulations.js';
 import preferencesRoutes from './routes/preferences.js';
 import configRoutes from './routes/config.js';
+import workspaceRoutes from './routes/workspaces.js';
 
 const app = express();
 
@@ -89,6 +90,7 @@ app.use('/api/rockets', rocketRoutes);
 app.use('/api/simulations', simulationRoutes);
 app.use('/api/preferences', preferencesRoutes);
 app.use('/api/config', configRoutes);
+app.use('/api/workspaces', workspaceRoutes);
 
 // Health check with diagnostics
 import mongoose from 'mongoose';

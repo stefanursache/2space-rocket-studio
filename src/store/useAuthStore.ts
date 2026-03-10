@@ -24,6 +24,7 @@ interface AuthState {
     showAdminPanel: boolean;
     showUserRockets: boolean;
     showUserSettings: boolean;
+    showWorkspaces: boolean;
     authError: string | null;
     preferences: UserPreferences | null;
     isAdminDeviceAuthorized: boolean;
@@ -37,6 +38,7 @@ interface AuthState {
     setShowAdminPanel: (show: boolean) => void;
     setShowUserRockets: (show: boolean) => void;
     setShowUserSettings: (show: boolean) => void;
+    setShowWorkspaces: (show: boolean) => void;
     clearError: () => void;
 
     // User profile actions
@@ -78,6 +80,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     showAdminPanel: false,
     showUserRockets: false,
     showUserSettings: false,
+    showWorkspaces: false,
     authError: null,
     preferences: null,
     isAdminDeviceAuthorized: false,
@@ -132,13 +135,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     logout: async () => {
         await logoutService();
-        set({ session: null, showAdminPanel: false, showUserRockets: false, showUserSettings: false, preferences: null });
+        set({ session: null, showAdminPanel: false, showUserRockets: false, showUserSettings: false, showWorkspaces: false, preferences: null });
     },
 
     setShowAuthModal: (show) => set({ showAuthModal: show, authError: null }),
     setShowAdminPanel: (show) => set({ showAdminPanel: show }),
     setShowUserRockets: (show) => set({ showUserRockets: show }),
     setShowUserSettings: (show) => set({ showUserSettings: show }),
+    setShowWorkspaces: (show) => set({ showWorkspaces: show }),
     clearError: () => set({ authError: null }),
 
     // User profile

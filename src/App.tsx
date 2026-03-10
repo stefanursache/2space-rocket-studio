@@ -15,6 +15,7 @@ import { AuthModal } from './components/AuthModal';
 import { AdminPanel } from './components/AdminPanel';
 import { UserRockets } from './components/UserRockets';
 import { UserSettings } from './components/UserSettings';
+import { WorkspaceDashboard } from './components/WorkspaceDashboard';
 import './App.css';
 
 function App() {
@@ -23,7 +24,7 @@ function App() {
         recalculateStability, initMotors,
     } = useStore();
 
-    const { init: initAuth, showAuthModal, showAdminPanel, showUserRockets, showUserSettings } = useAuthStore();
+    const { init: initAuth, showAuthModal, showAdminPanel, showUserRockets, showUserSettings, showWorkspaces } = useAuthStore();
 
     useEffect(() => {
         recalculateStability();
@@ -82,6 +83,7 @@ function App() {
             {showAdminPanel && <AdminPanel />}
             {showUserRockets && <UserRockets />}
             {showUserSettings && <UserSettings />}
+            {showWorkspaces && <WorkspaceDashboard />}
         </div>
     );
 }

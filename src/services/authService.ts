@@ -430,3 +430,109 @@ export async function isAuthorizedAdminDevice(): Promise<boolean> {
 export async function revokeDeviceAuthorization(): Promise<void> {
     await api('/config/authorized-device', { method: 'DELETE' });
 }
+
+// ---- Workspaces ------------------------------------------------
+
+export type MemberPermission = 'readonly' | 'read-write' | 'download';
+
+export interface WorkspaceMember {
+    userId: string;
+    email: string;
+    username: string;
+    permission: MemberPermission;
+    joinedAt: string;
+}
+
+export interface WorkspaceInfo {
+    id: string;
+    name: string;
+    description: string;
+    ownerId: string;
+    ownerUsername: string;
+    rocketId: string;
+    rocketName: string;
+    members: WorkspaceMember[];
+    createdAt: string;
+    updatedAt: string;
+}
+
+/** Get all workspaces where user is owner or member */
+export async function getWorkspaces(): Promise<WorkspaceInfo[]> {
+    return api('/workspaces');
+}
+
+/** Create a new workspace linked to a rocket */
+export async function createWorkspace(
+    name: string, rocketId: string, description?: string
+): Promise<{ success: boolean; workspace?: WorkspaceInfo; error?: string }> {
+    return api('/workspaces', {
+        method: 'POST',
+        body: JSON.stringify({ name, rocketId, description: description || '' }),
+    });
+}
+
+/** Get a single workspace */
+export async function getWorkspace(workspaceId: string): Promise<WorkspaceInfo> {
+    return api(`/workspaces/${workspaceId}`);
+}
+
+/** Update workspace name/description (owner only) */
+export async function updateWorkspace(
+    workspaceId: string, updates: { name?: string; description?: string }
+): Promise<{ success: boolean; workspace?: WorkspaceInfo; error?: string }> {
+    return api(`/workspaces/${workspaceId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+    });
+}
+
+/** Delete a workspace (owner only) */
+export async function deleteWorkspace(
+    workspaceId: string
+): Promise<{ success: boolean; error?: string }> {
+    return api(`/workspaces/${workspaceId}`, { method: 'DELETE' });
+}
+
+/** Add a member by email (owner only) */
+export async function addWorkspaceMember(
+    workspaceId: string, email: string, permission: MemberPermission = 'readonly'
+): Promise<{ success: boolean; workspace?: WorkspaceInfo; error?: string }> {
+    return api(`/workspaces/${workspaceId}/members`, {
+        method: 'POST',
+        body: JSON.stringify({ email, permission }),
+    });
+}
+
+/** Change a member's permission (owner only) */
+export async function updateMemberPermission(
+    workspaceId: string, userId: string, permission: MemberPermission
+): Promise<{ success: boolean; workspace?: WorkspaceInfo; error?: string }> {
+    return api(`/workspaces/${workspaceId}/members/${userId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ permission }),
+    });
+}
+
+/** Remove a member or leave workspace */
+export async function removeWorkspaceMember(
+    workspaceId: string, userId: string
+): Promise<{ success: boolean; error?: string }> {
+    return api(`/workspaces/${workspaceId}/members/${userId}`, { method: 'DELETE' });
+}
+
+/** Get the shared rocket data from a workspace */
+export async function getWorkspaceRocket(
+    workspaceId: string
+): Promise<{ rocket: UserRocket; permission: MemberPermission }> {
+    return api(`/workspaces/${workspaceId}/rocket`);
+}
+
+/** Update the shared rocket in a workspace (owner or read-write) */
+export async function updateWorkspaceRocket(
+    workspaceId: string, updates: { name?: string; description?: string; data?: string }
+): Promise<{ success: boolean; error?: string }> {
+    return api(`/workspaces/${workspaceId}/rocket`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+    });
+}
