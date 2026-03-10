@@ -5,10 +5,12 @@ import { requireAuth, requireAdmin } from '../middleware/auth.js';
 const router = Router();
 router.use(requireAuth);
 
-// GET /api/rockets/all — all rockets (admin) — must be before /:id
+// GET /api/rockets/all — all rockets (admin, list view without data)
 router.get('/all', requireAdmin, async (_req: Request, res: Response) => {
     try {
-        const rockets = await Rocket.find().sort({ updatedAt: -1 });
+        const rockets = await Rocket.find()
+            .select('-data -thumbnail')
+            .sort({ updatedAt: -1 });
         res.json(rockets.map(r => r.toJSON()));
     } catch (error) {
         console.error('Get all rockets error:', error);
@@ -16,10 +18,12 @@ router.get('/all', requireAdmin, async (_req: Request, res: Response) => {
     }
 });
 
-// GET /api/rockets — current user's rockets
+// GET /api/rockets — current user's rockets (list view, excludes bulky data field)
 router.get('/', async (req: Request, res: Response) => {
     try {
-        const rockets = await Rocket.find({ userId: req.auth!.userId }).sort({ updatedAt: -1 });
+        const rockets = await Rocket.find({ userId: req.auth!.userId })
+            .select('-data -thumbnail')
+            .sort({ updatedAt: -1 });
         res.json(rockets.map(r => r.toJSON()));
     } catch (error) {
         console.error('Get rockets error:', error);
@@ -27,10 +31,46 @@ router.get('/', async (req: Request, res: Response) => {
     }
 });
 
+// Storage constants
+const MAX_ROCKET_DATA_BYTES = 1_048_576; // 1 MB per rocket data field
+const MAX_ROCKETS_PER_USER = 25;
+
+// GET /api/rockets/:id — get a single rocket with full data (owner only)
+router.get('/:id', async (req: Request, res: Response) => {
+    try {
+        const rocket = await Rocket.findById(req.params.id);
+        if (!rocket) {
+            res.status(404).json({ error: 'Rocket not found' });
+            return;
+        }
+        if (rocket.userId !== req.auth!.userId && req.auth!.role !== 'admin') {
+            res.status(403).json({ error: 'Access denied' });
+            return;
+        }
+        res.json(rocket.toJSON());
+    } catch (error) {
+        console.error('Get rocket error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
 // POST /api/rockets — save a new rocket
 router.post('/', async (req: Request, res: Response) => {
     try {
         const { name, description, data } = req.body;
+
+        // ── Storage guards ──────────────────────────────────
+        if (data && typeof data === 'string' && data.length > MAX_ROCKET_DATA_BYTES) {
+            res.status(413).json({ error: `Rocket data too large (max 1 MB). Simplify the design or remove unused components.` });
+            return;
+        }
+
+        const count = await Rocket.countDocuments({ userId: req.auth!.userId });
+        if (count >= MAX_ROCKETS_PER_USER) {
+            res.status(409).json({ error: `You can save up to ${MAX_ROCKETS_PER_USER} rockets. Delete an old one to save a new design.` });
+            return;
+        }
+        // ────────────────────────────────────────────────────
+
         const rocket = await Rocket.create({
             userId: req.auth!.userId,
             name,
@@ -61,6 +101,13 @@ router.put('/:id', async (req: Request, res: Response) => {
         }
 
         const { name, description, data } = req.body;
+
+        // Storage guard: 1 MB max
+        if (data && typeof data === 'string' && data.length > MAX_ROCKET_DATA_BYTES) {
+            res.status(413).json({ success: false, error: 'Rocket data too large (max 1 MB). Simplify the design or remove unused components.' });
+            return;
+        }
+
         if (name !== undefined) rocket.name = name;
         if (description !== undefined) rocket.description = description;
         if (data !== undefined) rocket.data = data;

@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/useAuthStore';
 import { useStore } from '../store/useStore';
-import { UserRocket } from '../services/authService';
+import { UserRocket, getRocketById } from '../services/authService';
 
 export const UserRockets: React.FC = () => {
     const { showUserRockets, setShowUserRockets, session, fetchUserRockets, saveRocket, removeRocket } = useAuthStore();
@@ -62,9 +62,10 @@ export const UserRockets: React.FC = () => {
         setSaving(false);
     };
 
-    const handleLoad = (r: UserRocket) => {
+    const handleLoad = async (r: UserRocket) => {
         try {
-            const rocketData = JSON.parse(r.data);
+            const full = await getRocketById(r.id);
+            const rocketData = JSON.parse(full.data);
             setRocket(rocketData);
             showFlash(`Loaded "${r.name}"`, 'success');
         } catch {

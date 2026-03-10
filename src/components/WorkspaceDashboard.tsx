@@ -102,9 +102,8 @@ export const WorkspaceDashboard: React.FC = () => {
 
     const handleCreate = async () => {
         if (!createName.trim()) { showFlash('Name is required', 'error'); return; }
-        if (!createRocketId) { showFlash('Select a rocket', 'error'); return; }
         setCreating(true);
-        const result = await createWorkspace(createName, createRocketId, createDesc);
+        const result = await createWorkspace(createName, createRocketId || undefined, createDesc);
         if (result.success) {
             showFlash('Workspace created!', 'success');
             setShowCreate(false);
@@ -137,11 +136,19 @@ export const WorkspaceDashboard: React.FC = () => {
 
     const handleOpenWorkspace = async (ws: WorkspaceInfo) => {
         try {
+            // If no rocket linked, just open the workspace with computed permission
+            if (!ws.rocketId) {
+                setActiveWs(ws);
+                setActivePermission(getMyPermission(ws));
+                return;
+            }
             const result = await getWorkspaceRocket(ws.id);
             setActiveWs(ws);
             setActivePermission(result.permission);
         } catch {
-            showFlash('Failed to load workspace', 'error');
+            // Still open the workspace even if rocket fetch fails
+            setActiveWs(ws);
+            setActivePermission(getMyPermission(ws));
         }
     };
 
@@ -169,13 +176,18 @@ export const WorkspaceDashboard: React.FC = () => {
         }
         try {
             const data = JSON.stringify(rocket);
+            // Check data size client-side (1 MB limit)
+            if (data.length > 1_048_576) {
+                showFlash('Rocket data too large (max 1 MB). Simplify the design.', 'error');
+                return;
+            }
             const result = await updateWorkspaceRocket(activeWs.id, {
                 name: rocket.name,
                 data,
             });
             if (result.success) {
-                showFlash('Rocket updated in workspace!', 'success');
-                // Refresh workspace to get latest rocketName
+                showFlash(activeWs.rocketId ? 'Rocket updated in workspace!' : 'Rocket saved to workspace!', 'success');
+                // Refresh workspace to get latest rocketName / rocketId
                 const refreshed = await getWorkspaces();
                 setWorkspaces(refreshed);
                 const updated = refreshed.find(w => w.id === activeWs.id);
@@ -296,7 +308,7 @@ export const WorkspaceDashboard: React.FC = () => {
                                                     </div>
                                                 </div>
                                                 <div className="ws-card-meta">
-                                                    <span className="ws-meta-item">🚀 {ws.rocketName || 'Unnamed'}</span>
+                                                    <span className="ws-meta-item">🚀 {ws.rocketName || (ws.rocketId ? 'Unnamed' : 'No rocket yet')}</span>
                                                     <span className="ws-meta-item">👤 {ws.ownerUsername}</span>
                                                     <span className="ws-meta-item">👥 {ws.members.length + 1} member{ws.members.length !== 0 ? 's' : ''}</span>
                                                 </div>
@@ -341,7 +353,7 @@ export const WorkspaceDashboard: React.FC = () => {
                             </div>
                             {activeWs.description && <p className="ws-detail-desc">{activeWs.description}</p>}
                             <div className="ws-detail-meta">
-                                <span>🚀 {activeWs.rocketName || 'Unnamed Rocket'}</span>
+                                <span>🚀 {activeWs.rocketName || (activeWs.rocketId ? 'Unnamed Rocket' : 'No rocket linked')}</span>
                                 <span>👤 Owner: {activeWs.ownerUsername}</span>
                                 <span>Your access: <strong style={{ color: PERM_COLORS[activePermission] }}>{PERM_LABELS[activePermission]}</strong></span>
                             </div>
@@ -349,15 +361,19 @@ export const WorkspaceDashboard: React.FC = () => {
 
                         {/* Action buttons */}
                         <div className="ws-detail-actions">
-                            <button className="ur-load-btn" onClick={handleLoadRocket}>
-                                📂 Load Rocket
-                            </button>
+                            {activeWs.rocketId ? (
+                                <button className="ur-load-btn" onClick={handleLoadRocket}>
+                                    📂 Load Rocket
+                                </button>
+                            ) : (
+                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No rocket linked yet{activePermission === 'read-write' ? ' — save your current design to get started!' : '.'}</span>
+                            )}
                             {activePermission === 'read-write' && (
                                 <button className="ur-save-btn" onClick={handleSaveToWorkspace}>
-                                    💾 Save Current Design to Workspace
+                                    💾 {activeWs.rocketId ? 'Save Current Design to Workspace' : 'Save Current Design as Workspace Rocket'}
                                 </button>
                             )}
-                            {activePermission === 'download' && (
+                            {activePermission === 'download' && activeWs.rocketId && (
                                 <button className="ur-load-btn" onClick={handleLoadRocket}>
                                     ⬇️ Download Rocket
                                 </button>
@@ -447,12 +463,12 @@ export const WorkspaceDashboard: React.FC = () => {
                                 <input type="text" value={createDesc} onChange={e => setCreateDesc(e.target.value)} placeholder="Brief description…" />
                             </div>
                             <div className="auth-field">
-                                <label>Select Rocket</label>
+                                <label>Link a Rocket (optional)</label>
                                 {myRockets.length === 0 ? (
-                                    <p className="ws-no-rockets-hint">You don't have any saved rockets. Save a rocket first from "My Rockets".</p>
+                                    <p className="ws-no-rockets-hint">No saved rockets yet — you can link one later or save your current design into the workspace.</p>
                                 ) : (
                                     <select className="ws-rocket-select" value={createRocketId} onChange={e => setCreateRocketId(e.target.value)}>
-                                        <option value="">— Choose a rocket —</option>
+                                        <option value="">— No rocket (link later) —</option>
                                         {myRockets.map(r => (
                                             <option key={r.id} value={r.id}>🚀 {r.name}</option>
                                         ))}
@@ -461,7 +477,7 @@ export const WorkspaceDashboard: React.FC = () => {
                             </div>
                             <div className="reset-actions">
                                 <button className="admin-btn-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
-                                <button className="auth-submit" onClick={handleCreate} disabled={creating || !createName.trim() || !createRocketId}>
+                                <button className="auth-submit" onClick={handleCreate} disabled={creating || !createName.trim()}>
                                     {creating ? 'Creating…' : 'Create Workspace'}
                                 </button>
                             </div>

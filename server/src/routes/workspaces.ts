@@ -24,7 +24,9 @@ router.get('/', async (req: Request, res: Response) => {
     }
 });
 
-// ─── POST /api/workspaces ─── create a workspace (link to an existing rocket)
+const MAX_WORKSPACES_PER_USER = 10;
+
+// ─── POST /api/workspaces ─── create a workspace (optionally link to an existing rocket)
 router.post('/', async (req: Request, res: Response) => {
     try {
         const { name, description, rocketId } = req.body;
@@ -34,20 +36,30 @@ router.post('/', async (req: Request, res: Response) => {
             res.json({ success: false, error: 'Workspace name is required' });
             return;
         }
-        if (!rocketId) {
-            res.json({ success: false, error: 'A rocket must be selected for the workspace' });
+
+        // Cap workspaces per user
+        const ownedCount = await Workspace.countDocuments({ ownerId: userId });
+        if (ownedCount >= MAX_WORKSPACES_PER_USER) {
+            res.json({ success: false, error: `You can own up to ${MAX_WORKSPACES_PER_USER} workspaces. Delete an old one first.` });
             return;
         }
 
-        // Verify the rocket exists and belongs to the user
-        const rocket = await Rocket.findById(rocketId);
-        if (!rocket) {
-            res.json({ success: false, error: 'Rocket not found' });
-            return;
-        }
-        if (rocket.userId !== userId) {
-            res.status(403).json({ success: false, error: 'You can only create workspaces for your own rockets' });
-            return;
+        let linkedRocketId = '';
+        let linkedRocketName = '';
+
+        // If a rocket is provided, verify it exists and belongs to the user
+        if (rocketId) {
+            const rocket = await Rocket.findById(rocketId);
+            if (!rocket) {
+                res.json({ success: false, error: 'Rocket not found' });
+                return;
+            }
+            if (rocket.userId !== userId) {
+                res.status(403).json({ success: false, error: 'You can only create workspaces for your own rockets' });
+                return;
+            }
+            linkedRocketId = rocketId;
+            linkedRocketName = rocket.name;
         }
 
         const workspace = await Workspace.create({
@@ -55,8 +67,8 @@ router.post('/', async (req: Request, res: Response) => {
             description: (description || '').trim(),
             ownerId: userId,
             ownerUsername: req.auth!.username,
-            rocketId,
-            rocketName: rocket.name,
+            rocketId: linkedRocketId,
+            rocketName: linkedRocketName,
             members: [],
         });
 
@@ -280,6 +292,11 @@ router.get('/:id/rocket', async (req: Request, res: Response) => {
             return;
         }
 
+        if (!workspace.rocketId) {
+            res.status(404).json({ error: 'No rocket linked to this workspace yet' });
+            return;
+        }
+
         const rocket = await Rocket.findById(workspace.rocketId);
         if (!rocket) {
             res.status(404).json({ error: 'Rocket not found — it may have been deleted' });
@@ -317,13 +334,37 @@ router.put('/:id/rocket', async (req: Request, res: Response) => {
             return;
         }
 
+        const { name, description, data } = req.body;
+
+        // Storage guard: 1 MB max per rocket data
+        if (data && typeof data === 'string' && data.length > 1_048_576) {
+            res.json({ success: false, error: 'Rocket data too large (max 1 MB). Simplify the design or remove unused components.' });
+            return;
+        }
+
+        // If workspace has no rocket linked yet, create one
+        if (!workspace.rocketId) {
+            const newRocket = await Rocket.create({
+                userId: workspace.ownerId,
+                name: name || 'Workspace Rocket',
+                description: description || '',
+                data: data || '',
+                thumbnail: '',
+            });
+            workspace.rocketId = newRocket._id.toString();
+            workspace.rocketName = newRocket.name;
+            workspace.updatedAt = new Date();
+            await workspace.save();
+            res.json({ success: true });
+            return;
+        }
+
         const rocket = await Rocket.findById(workspace.rocketId);
         if (!rocket) {
             res.status(404).json({ success: false, error: 'Rocket not found' });
             return;
         }
 
-        const { name, description, data } = req.body;
         if (name !== undefined) rocket.name = name;
         if (description !== undefined) rocket.description = description;
         if (data !== undefined) rocket.data = data;

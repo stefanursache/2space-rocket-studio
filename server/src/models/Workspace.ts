@@ -35,7 +35,7 @@ const workspaceSchema = new Schema<IWorkspace>({
     description: { type: String, default: '' },
     ownerId: { type: String, required: true, index: true },
     ownerUsername: { type: String, required: true },
-    rocketId: { type: String, required: true },
+    rocketId: { type: String, default: '' },
     rocketName: { type: String, default: '' },
     members: { type: [workspaceMemberSchema], default: [] },
     createdAt: { type: Date, default: Date.now },

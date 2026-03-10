@@ -326,9 +326,14 @@ export async function updateUserRocket(
     });
 }
 
-/** Get all rockets for a user */
+/** Get all rockets for a user (list view — no data field for efficiency) */
 export async function getUserRockets(userId: string): Promise<UserRocket[]> {
     return api('/rockets');
+}
+
+/** Get a single rocket with full data */
+export async function getRocketById(rocketId: string): Promise<UserRocket> {
+    return api(`/rockets/${rocketId}`);
 }
 
 /** Get ALL rockets (admin) */
@@ -463,11 +468,11 @@ export async function getWorkspaces(): Promise<WorkspaceInfo[]> {
 
 /** Create a new workspace linked to a rocket */
 export async function createWorkspace(
-    name: string, rocketId: string, description?: string
+    name: string, rocketId?: string, description?: string
 ): Promise<{ success: boolean; workspace?: WorkspaceInfo; error?: string }> {
     return api('/workspaces', {
         method: 'POST',
-        body: JSON.stringify({ name, rocketId, description: description || '' }),
+        body: JSON.stringify({ name, rocketId: rocketId || '', description: description || '' }),
     });
 }
 
