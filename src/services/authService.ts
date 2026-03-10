@@ -124,13 +124,11 @@ export function validatePassword(password: string): string | null {
 
 // ---- Public API ------------------------------------------------
 
-/** Ensure the default admin user exists (called on app init) */
+/** Ensure the default admin user exists (handled server-side automatically on boot) */
 export async function ensureDefaultAdmin(): Promise<void> {
-    try {
-        await api('/auth/init', { method: 'POST' });
-    } catch {
-        console.warn('Could not reach server for admin init');
-    }
+    // Admin seeding is now done server-side in the DB middleware.
+    // This function is kept for API compatibility — it's a no-op.
+    return;
 }
 
 /** Register a new user */

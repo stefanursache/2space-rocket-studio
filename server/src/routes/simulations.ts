@@ -49,11 +49,16 @@ router.post('/', async (req: Request, res: Response) => {
     }
 });
 
-// DELETE /api/simulations/:id — delete a simulation
+// DELETE /api/simulations/:id — delete a simulation (owner or admin)
 router.delete('/:id', async (req: Request, res: Response) => {
     try {
         const sim = await Simulation.findById(req.params.id);
         if (sim) {
+            // Authorization: only owner or admin can delete
+            if (sim.userId !== req.auth!.userId && req.auth!.role !== 'admin') {
+                res.status(403).json({ success: false, error: 'Access denied' });
+                return;
+            }
             await Simulation.deleteOne({ _id: req.params.id });
             await User.findByIdAndUpdate(sim.userId, { $inc: { simulationCount: -1 } });
         }

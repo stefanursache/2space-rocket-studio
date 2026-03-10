@@ -45,12 +45,18 @@ router.post('/', async (req: Request, res: Response) => {
     }
 });
 
-// PUT /api/rockets/:id — update a rocket
+// PUT /api/rockets/:id — update a rocket (owner only)
 router.put('/:id', async (req: Request, res: Response) => {
     try {
         const rocket = await Rocket.findById(req.params.id);
         if (!rocket) {
             res.json({ success: false, error: 'Rocket not found' });
+            return;
+        }
+
+        // Authorization: only the owner can edit their rocket
+        if (rocket.userId !== req.auth!.userId && req.auth!.role !== 'admin') {
+            res.status(403).json({ success: false, error: 'Access denied' });
             return;
         }
 
@@ -68,9 +74,18 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
 });
 
-// DELETE /api/rockets/:id — delete a rocket
+// DELETE /api/rockets/:id — delete a rocket (owner or admin)
 router.delete('/:id', async (req: Request, res: Response) => {
     try {
+        const rocket = await Rocket.findById(req.params.id);
+        if (!rocket) {
+            res.json({ success: true }); // idempotent
+            return;
+        }
+        if (rocket.userId !== req.auth!.userId && req.auth!.role !== 'admin') {
+            res.status(403).json({ success: false, error: 'Access denied' });
+            return;
+        }
         await Rocket.deleteOne({ _id: req.params.id });
         res.json({ success: true });
     } catch (error) {

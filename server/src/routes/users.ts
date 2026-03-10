@@ -113,9 +113,15 @@ router.get('/', requireAdmin, async (_req: Request, res: Response) => {
     }
 });
 
-// GET /api/users/:id — single user
+// GET /api/users/:id — single user (self or admin only)
 router.get('/:id', async (req: Request, res: Response) => {
     try {
+        // Only allow users to view their own profile, or admins to view anyone
+        if (req.params.id !== req.auth!.userId && req.auth!.role !== 'admin') {
+            res.status(403).json({ error: 'Access denied' });
+            return;
+        }
+
         const user = await User.findById(req.params.id);
         if (!user) {
             res.status(404).json({ error: 'User not found' });

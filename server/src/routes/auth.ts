@@ -8,10 +8,36 @@ import { requireAuth } from '../middleware/auth.js';
 const router = Router();
 const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+// ---- Server-side validation helpers ----
+const USERNAME_RE = /^[a-zA-Z0-9_-]{3,30}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_MIN = 8;
+
+function validateInput(username: string, email: string, password: string): string | null {
+    if (!username || typeof username !== 'string') return 'Username is required';
+    if (!USERNAME_RE.test(username)) return 'Username must be 3-30 chars: letters, numbers, hyphens, underscores';
+    if (!email || typeof email !== 'string') return 'Email is required';
+    if (!EMAIL_RE.test(email)) return 'Invalid email address';
+    if (!password || typeof password !== 'string') return 'Password is required';
+    if (password.length < PASSWORD_MIN) return `Password must be at least ${PASSWORD_MIN} characters`;
+    if (!/[A-Z]/.test(password)) return 'Password must contain an uppercase letter';
+    if (!/[a-z]/.test(password)) return 'Password must contain a lowercase letter';
+    if (!/[0-9]/.test(password)) return 'Password must contain a number';
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) return 'Password must contain a special character';
+    return null;
+}
+
 // POST /api/auth/register
 router.post('/register', async (req: Request, res: Response) => {
     try {
         const { username, email, password } = req.body;
+
+        // Server-side validation
+        const valErr = validateInput(username, email, password);
+        if (valErr) {
+            res.json({ success: false, error: valErr });
+            return;
+        }
 
         const byUsername = await User.findOne({ username });
         if (byUsername) {
@@ -39,7 +65,7 @@ router.post('/register', async (req: Request, res: Response) => {
         res.json({ success: true });
     } catch (error: any) {
         console.error('Register error:', error);
-        res.status(500).json({ success: false, error: error.message || 'Server error' });
+        res.status(500).json({ success: false, error: 'Server error' });
     }
 });
 
@@ -87,7 +113,7 @@ router.post('/login', async (req: Request, res: Response) => {
         res.json({ success: true, session: session.toJSON() });
     } catch (error: any) {
         console.error('Login error:', error);
-        res.status(500).json({ success: false, error: error.message || 'Server error' });
+        res.status(500).json({ success: false, error: 'Server error' });
     }
 });
 
@@ -131,26 +157,7 @@ router.get('/session', async (req: Request, res: Response) => {
     }
 });
 
-// POST /api/auth/init — ensure default admin exists
-router.post('/init', async (_req: Request, res: Response) => {
-    try {
-        const existing = await User.findOne({ username: 'admin' });
-        if (!existing) {
-            const hash = await bcrypt.hash('Admin123!', 12);
-            await User.create({
-                username: 'admin',
-                email: 'admin@2space.local',
-                passwordHash: hash,
-                role: 'admin',
-                disabled: false,
-                simulationCount: 0,
-            });
-        }
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Init error:', error);
-        res.status(500).json({ success: false, error: 'Server error' });
-    }
-});
+// NOTE: /api/auth/init removed — admin seeding happens in DB middleware (app.ts)
+// This prevents unauthenticated users from triggering admin creation.
 
 export default router;
