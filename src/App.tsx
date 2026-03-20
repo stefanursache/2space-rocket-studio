@@ -16,6 +16,7 @@ import { AdminPanel } from './components/AdminPanel';
 import { UserRockets } from './components/UserRockets';
 import { UserSettings } from './components/UserSettings';
 import { WorkspaceDashboard } from './components/WorkspaceDashboard';
+import { DockablePanel } from './components/DockablePanel';
 import './App.css';
 
 function App() {
@@ -40,21 +41,44 @@ function App() {
                 <>
                     <ComponentToolbar />
                     <div className="main-content">
-                        <div className="left-panel">
-                            <ComponentTree />
-                            <StabilityInfo />
-                        </div>
+                        <div className="workspace-canvas">
+                            <div className="canvas-view">
+                                {show3DView ? (
+                                    <RocketView3D />
+                                ) : (
+                                    <RocketView2D />
+                                )}
+                            </div>
 
-                        <div className="center-panel">
-                            {show3DView ? (
-                                <RocketView3D />
-                            ) : (
-                                <RocketView2D />
-                            )}
-                        </div>
+                            <DockablePanel
+                                id="design-components"
+                                title="Components"
+                                initialRect={{ x: 10, y: 10, width: 340, height: 560 }}
+                                minWidth={280}
+                                minHeight={260}
+                            >
+                                <ComponentTree />
+                            </DockablePanel>
 
-                        <div className="right-panel">
-                            <ComponentEditor />
+                            <DockablePanel
+                                id="design-editor"
+                                title="Component Editor"
+                                initialRect={{ x: 980, y: 10, width: 360, height: 700 }}
+                                minWidth={300}
+                                minHeight={320}
+                            >
+                                <ComponentEditor />
+                            </DockablePanel>
+
+                            <DockablePanel
+                                id="design-stability"
+                                title="Stability & Flight Data"
+                                initialRect={{ x: 10, y: 580, width: 340, height: 290 }}
+                                minWidth={280}
+                                minHeight={220}
+                            >
+                                <StabilityInfo />
+                            </DockablePanel>
                         </div>
                     </div>
                 </>
@@ -66,14 +90,36 @@ function App() {
 
             {viewMode === 'analysis' && (
                 <div className="main-content">
-                    <div className="left-panel">
-                        <ComponentTree />
-                    </div>
-                    <div className="center-panel">
-                        <AnalysisPanel />
-                    </div>
-                    <div className="right-panel">
-                        <StabilityInfo />
+                    <div className="workspace-canvas">
+                        <DockablePanel
+                            id="analysis-components"
+                            title="Components"
+                            initialRect={{ x: 10, y: 10, width: 340, height: 620 }}
+                            minWidth={280}
+                            minHeight={260}
+                        >
+                            <ComponentTree />
+                        </DockablePanel>
+
+                        <DockablePanel
+                            id="analysis-main"
+                            title="Rocket Analysis"
+                            initialRect={{ x: 360, y: 10, width: 760, height: 860 }}
+                            minWidth={420}
+                            minHeight={300}
+                        >
+                            <AnalysisPanel />
+                        </DockablePanel>
+
+                        <DockablePanel
+                            id="analysis-stability"
+                            title="Stability & Flight Data"
+                            initialRect={{ x: 1130, y: 10, width: 340, height: 520 }}
+                            minWidth={280}
+                            minHeight={220}
+                        >
+                            <StabilityInfo />
+                        </DockablePanel>
                     </div>
                 </div>
             )}
