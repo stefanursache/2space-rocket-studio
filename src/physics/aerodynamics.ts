@@ -6,7 +6,7 @@
 
 import {
     Rocket, RocketComponent, NoseCone, BodyTube, Transition,
-    TrapezoidFinSet, EllipticalFinSet, Airbrakes, AeroForces, StabilityData, Stage, Motor
+    TrapezoidFinSet, EllipticalFinSet, Airbrakes, AeroForces, StabilityData, Stage, Motor, StabilityModelOptions
 } from '../types/rocket';
 import { getAtmosphere, getReynoldsNumber, getMachNumber } from './atmosphere';
 import { SURFACE_ROUGHNESS } from '../models/materials';
@@ -259,17 +259,13 @@ function getComponentCG(comp: RocketComponent): number {
         case 'trapezoidfinset': {
             // Centroid of trapezoidal fin (from leading edge of root)
             const { rootChord, tipChord, height, sweepLength } = comp;
-            // Centroid x of a trapezoid with parallel sides rootChord and tipChord:
-            // x_centroid = sweepLength + (rootChord² + rootChord*tipChord + tipChord²) / (3*(rootChord + tipChord))
-            // but measured from root leading edge
-            const xCentroid = (sweepLength * (rootChord + 2 * tipChord) +
-                (rootChord * rootChord + rootChord * tipChord + tipChord * tipChord) / 3) /
-                (rootChord + tipChord);
-            // Simplified: just use the x-centroid of the trapezoid shape
-            return sweepLength / 3 * (1 + 2 * tipChord / (rootChord + tipChord)) +
-                (rootChord + tipChord) > 0
-                ? (1 / 6) * (rootChord + tipChord - rootChord * tipChord / (rootChord + tipChord))
-                : rootChord / 3;
+            void height;
+            const denom = rootChord + tipChord;
+            if (denom <= 0) return rootChord / 2;
+            const xCentroid =
+                sweepLength * (rootChord + 2 * tipChord) / (3 * denom) +
+                (rootChord * rootChord + rootChord * tipChord + tipChord * tipChord) / (3 * denom);
+            return xCentroid;
         }
         default:
             return 0;
@@ -399,7 +395,20 @@ function transitionCP(
     const A2 = Math.PI * r2 * r2;
 
     const cnAlpha = 2 * (A2 - A1) / refArea;
-    const cp = xPos + l / 3 * (1 + (1 - r1 / r2) / (1 - (r1 / r2) ** 2));
+
+    // If there is effectively no area change, this component contributes no normal force.
+    // Return a finite CP to avoid 0 * NaN contaminating global CP moment accumulation.
+    if (Math.abs(A2 - A1) < 1e-12) {
+        return { cnAlpha: 0, cp: xPos + l / 2 };
+    }
+
+    // Use a numerically stable equivalent of the Barrowman frustum CP expression.
+    // x_cp(local) = (L/3) * (r1 + 2*r2) / (r1 + r2)
+    const radiusSum = r1 + r2;
+    const cpLocal = radiusSum > 0
+        ? (l / 3) * ((r1 + 2 * r2) / radiusSum)
+        : l / 2;
+    const cp = xPos + cpLocal;
 
     return { cnAlpha, cp };
 }
@@ -411,6 +420,9 @@ function trapezoidFinCP(
     refArea: number
 ): { cnAlpha: number; cp: number } {
     const { finCount, rootChord, tipChord, height, sweepLength } = fin;
+    if (refArea <= 0 || finCount <= 0 || height <= 0 || rootChord < 0 || tipChord < 0 || (rootChord + tipChord) <= 0) {
+        return { cnAlpha: 0, cp: xPos };
+    }
     const s = height; // semi-span
     const Cr = rootChord;
     const Ct = tipChord;
@@ -449,6 +461,9 @@ function ellipticalFinCP(
     bodyRadius: number,
     refArea: number
 ): { cnAlpha: number; cp: number } {
+    if (refArea <= 0 || fin.finCount <= 0 || fin.height <= 0 || fin.rootChord <= 0) {
+        return { cnAlpha: 0, cp: xPos };
+    }
     const s = fin.height;
     const Cr = fin.rootChord;
     const r = bodyRadius; // LOCAL body radius for interference factor
@@ -476,7 +491,8 @@ export function calculateStability(
     motor?: Motor | null,
     motorPosition?: number,
     propellantMassRemaining?: number,
-    mach?: number
+    mach?: number,
+    options?: StabilityModelOptions
 ): StabilityData {
     const positions = getComponentPositions(rocket);
     const refArea = getReferenceArea(rocket);
@@ -499,8 +515,10 @@ export function calculateStability(
         compFactor = 1.0 / Math.sqrt(M * M - 1);
     }
 
-    let totalCnAlpha = 0;
-    let cpMoment = 0;
+    let bodyCnAlpha = 0;
+    let bodyCpMoment = 0;
+    let finCnAlpha = 0;
+    let finCpMoment = 0;
 
     // Process each component
     for (const pos of positions) {
@@ -509,15 +527,15 @@ export function calculateStability(
         if (comp.type === 'nosecone') {
             const { cnAlpha, cp } = noseConeCP(comp);
             const cn = cnAlpha * compFactor;
-            totalCnAlpha += cn;
-            cpMoment += cn * cp;
+            bodyCnAlpha += cn;
+            bodyCpMoment += cn * cp;
         }
 
         if (comp.type === 'transition') {
             const { cnAlpha, cp } = transitionCP(comp, pos.xStart, refArea);
             const cn = cnAlpha * compFactor;
-            totalCnAlpha += cn;
-            cpMoment += cn * cp;
+            bodyCnAlpha += cn;
+            bodyCpMoment += cn * cp;
         }
 
         // Process children (fins)
@@ -530,18 +548,40 @@ export function calculateStability(
                     const finPos = pos.xStart + childOffset;
                     const { cnAlpha, cp } = trapezoidFinCP(child, finPos, bodyRadius, refArea);
                     const cn = cnAlpha * compFactor;
-                    totalCnAlpha += cn;
-                    cpMoment += cn * cp;
+                    finCnAlpha += cn;
+                    finCpMoment += cn * cp;
                 }
                 if (child.type === 'ellipticalfinset') {
                     const finPos = pos.xStart + childOffset;
                     const { cnAlpha, cp } = ellipticalFinCP(child, finPos, bodyRadius, refArea);
                     const cn = cnAlpha * compFactor;
-                    totalCnAlpha += cn;
-                    cpMoment += cn * cp;
+                    finCnAlpha += cn;
+                    finCpMoment += cn * cp;
                 }
             }
         }
+    }
+
+    let totalCnAlpha = bodyCnAlpha + finCnAlpha;
+    let cpMoment = bodyCpMoment + finCpMoment;
+
+    if (options?.model === 'extended-high-alpha') {
+        const alphaDeg = Math.max(0, Math.min(45, options.alphaDeg ?? 12));
+        const alpha = alphaDeg * Math.PI / 180;
+        const sin2 = Math.sin(alpha) ** 2;
+        const cosA = Math.max(0.25, Math.cos(alpha));
+
+        const bodyScale = 1 + 1.1 * sin2;
+        const finScale = Math.max(0.4, cosA);
+        const bodyAftShift = 0.08 * totalLength * sin2;
+
+        const bodyCnAdjusted = bodyCnAlpha * bodyScale;
+        const bodyMomentAdjusted = bodyScale * (bodyCpMoment + bodyCnAlpha * bodyAftShift);
+        const finCnAdjusted = finCnAlpha * finScale;
+        const finMomentAdjusted = finCpMoment * finScale;
+
+        totalCnAlpha = bodyCnAdjusted + finCnAdjusted;
+        cpMoment = bodyMomentAdjusted + finMomentAdjusted;
     }
 
     const cpPosition = totalCnAlpha > 0 ? cpMoment / totalCnAlpha : 0;

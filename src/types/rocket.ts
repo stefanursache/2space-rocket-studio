@@ -372,6 +372,13 @@ export interface StabilityData {
     cnAlpha: number; // normal force coefficient slope
 }
 
+export type StabilityModel = 'barrowman' | 'extended-high-alpha';
+
+export interface StabilityModelOptions {
+    model?: StabilityModel;
+    alphaDeg?: number;
+}
+
 // ===========================
 // Aerodynamic Forces
 // ===========================

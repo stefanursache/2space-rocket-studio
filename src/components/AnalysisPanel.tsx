@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useStore } from '../store/useStore';
 import { calculateStability, calculateDrag, getComponentPositions, getRocketLength, getMaxRadius, getReferenceArea, findAirbrakes } from '../physics/aerodynamics';
@@ -10,6 +10,7 @@ const COLORS = ['#2196F3', '#4CAF50', '#FF9800', '#f44336', '#9C27B0', '#00BCD4'
 export const AnalysisPanel: React.FC = () => {
     const { rocket, stability, selectedMotor, unitSystem: us } = useStore();
     const motorPosition = useStore(s => s.motorPosition);
+    const [compareExtended, setCompareExtended] = useState(false);
 
     const analysis = useMemo(() => {
         const positions = getComponentPositions(rocket);
@@ -102,6 +103,16 @@ export const AnalysisPanel: React.FC = () => {
         length: parseFloat(toDisplay(g.length / 100, 'cm', us).toFixed(1)),
         position: parseFloat(toDisplay(g.position / 100, 'cm', us).toFixed(1)),
     }));
+
+    const barrowmanStability = useMemo(
+        () => calculateStability(rocket, selectedMotor, motorPosition, undefined, undefined, { model: 'barrowman' }),
+        [rocket, selectedMotor, motorPosition]
+    );
+
+    const extendedStability = useMemo(
+        () => calculateStability(rocket, selectedMotor, motorPosition, undefined, undefined, { model: 'extended-high-alpha', alphaDeg: 12 }),
+        [rocket, selectedMotor, motorPosition]
+    );
 
     return (
         <div className="analysis-panel">
@@ -208,6 +219,17 @@ export const AnalysisPanel: React.FC = () => {
             {/* Stability */}
             <div className="analysis-section">
                 <h3>Stability Analysis</h3>
+                <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                        id="extended-model-toggle"
+                        type="checkbox"
+                        checked={compareExtended}
+                        onChange={(e) => setCompareExtended(e.target.checked)}
+                    />
+                    <label htmlFor="extended-model-toggle" style={{ color: '#ced4de', cursor: 'pointer' }}>
+                        Compare with Extended high-α model (Jorgensen-style body correction, α = 12°)
+                    </label>
+                </div>
                 {stability ? (
                     <>
                         <div className="analysis-grid">
@@ -237,6 +259,38 @@ export const AnalysisPanel: React.FC = () => {
                             {stability.stabilityMargin >= 1.5 && stability.stabilityMargin < 3 && '✅ STABLE: Good stability margin for safe flight.'}
                             {stability.stabilityMargin >= 3 && '🔒 OVERSTABLE: The rocket may weathercock in wind. Consider reducing fin size.'}
                         </div>
+
+                        {compareExtended && (
+                            <div style={{ marginTop: 14 }}>
+                                <h4 style={{ marginBottom: 10 }}>Model Comparison</h4>
+                                <div className="analysis-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                                    <div className="analysis-item">
+                                        <span className="a-label">Barrowman CP</span>
+                                        <span className="a-value">{fmtU(barrowmanStability.cp, 'cm', us)}</span>
+                                    </div>
+                                    <div className="analysis-item">
+                                        <span className="a-label">Extended CP</span>
+                                        <span className="a-value">{fmtU(extendedStability.cp, 'cm', us)}</span>
+                                    </div>
+                                    <div className="analysis-item">
+                                        <span className="a-label">Barrowman Margin</span>
+                                        <span className="a-value">{barrowmanStability.stabilityMargin.toFixed(2)} cal</span>
+                                    </div>
+                                    <div className="analysis-item">
+                                        <span className="a-label">Extended Margin</span>
+                                        <span className="a-value">{extendedStability.stabilityMargin.toFixed(2)} cal</span>
+                                    </div>
+                                    <div className="analysis-item">
+                                        <span className="a-label">ΔCP (Ext - Bar)</span>
+                                        <span className="a-value">{fmtU(extendedStability.cp - barrowmanStability.cp, 'cm', us, 2)}</span>
+                                    </div>
+                                    <div className="analysis-item">
+                                        <span className="a-label">ΔMargin (Ext - Bar)</span>
+                                        <span className="a-value">{(extendedStability.stabilityMargin - barrowmanStability.stabilityMargin).toFixed(2)} cal</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </>
                 ) : (
                     <p>Add components to see stability analysis.</p>
