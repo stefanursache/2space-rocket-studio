@@ -53,6 +53,16 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
     }, [id]);
 
     useEffect(() => {
+        const onReset = () => {
+            setRect(initialRect);
+        };
+        window.addEventListener('dock-panels-reset', onReset as EventListener);
+        return () => {
+            window.removeEventListener('dock-panels-reset', onReset as EventListener);
+        };
+    }, [initialRect]);
+
+    useEffect(() => {
         localStorage.setItem(`dock-panel:${id}`, JSON.stringify(rect));
     }, [id, rect]);
 

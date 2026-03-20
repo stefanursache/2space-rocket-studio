@@ -14,6 +14,16 @@ export const Toolbar: React.FC = () => {
 
     const loginBtnColor = preferences?.loginButtonColor || '#3b8eed';
 
+    const resetPanelLayout = () => {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('dock-panel:')) keysToRemove.push(k);
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+        window.dispatchEvent(new Event('dock-panels-reset'));
+    };
+
     return (
         <div className="toolbar">
             <div className="toolbar-left">
@@ -42,6 +52,10 @@ export const Toolbar: React.FC = () => {
                 <button className="toolbar-btn" onClick={loadRocketFromFile} title="Open rocket from file (.ork.json or .ork)">
                     <span className="btn-icon">📂</span>
                     <span className="btn-label">Open</span>
+                </button>
+                <button className="toolbar-btn" onClick={resetPanelLayout} title="Reset movable/resizable panel layout">
+                    <span className="btn-icon">↺</span>
+                    <span className="btn-label">Reset Panels</span>
                 </button>
 
                 <div className="toolbar-separator" />
