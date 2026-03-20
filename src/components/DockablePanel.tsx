@@ -20,6 +20,19 @@ function clamp(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, value));
 }
 
+function nearestSnap(current: number, targets: number[], threshold: number): number {
+    let best = current;
+    let bestDist = threshold + 1;
+    for (const t of targets) {
+        const d = Math.abs(current - t);
+        if (d <= threshold && d < bestDist) {
+            bestDist = d;
+            best = t;
+        }
+    }
+    return best;
+}
+
 export const DockablePanel: React.FC<DockablePanelProps> = ({
     id,
     title,
@@ -69,11 +82,16 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
     useEffect(() => {
         if (!action) return;
 
+        const snapThreshold = 14;
+
         const onPointerMove = (event: PointerEvent) => {
             const panel = panelRef.current;
             const parent = panel?.offsetParent as HTMLElement | null;
             const parentW = parent?.clientWidth ?? window.innerWidth;
             const parentH = parent?.clientHeight ?? window.innerHeight;
+
+            const siblingPanels = Array.from(parent?.querySelectorAll('.dock-panel') || [])
+                .filter(el => el !== panel) as HTMLElement[];
 
             if (action.type === 'drag') {
                 const dx = event.clientX - action.startX;
@@ -81,18 +99,63 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
                 const maxX = Math.max(0, parentW - rect.width);
                 const maxY = Math.max(0, parentH - rect.height);
 
+                let nextX = clamp(action.startRect.x + dx, 0, maxX);
+                let nextY = clamp(action.startRect.y + dy, 0, maxY);
+
+                const xTargets: number[] = [0, maxX];
+                const yTargets: number[] = [0, maxY];
+
+                for (const sib of siblingPanels) {
+                    const sx = sib.offsetLeft;
+                    const sy = sib.offsetTop;
+                    const sw = sib.offsetWidth;
+                    const sh = sib.offsetHeight;
+                    xTargets.push(
+                        sx,
+                        sx + sw - rect.width,
+                        sx + sw,
+                        sx - rect.width,
+                    );
+                    yTargets.push(
+                        sy,
+                        sy + sh - rect.height,
+                        sy + sh,
+                        sy - rect.height,
+                    );
+                }
+
+                nextX = clamp(nearestSnap(nextX, xTargets, snapThreshold), 0, maxX);
+                nextY = clamp(nearestSnap(nextY, yTargets, snapThreshold), 0, maxY);
+
                 setRect(prev => ({
                     ...prev,
-                    x: clamp(action.startRect.x + dx, 0, maxX),
-                    y: clamp(action.startRect.y + dy, 0, maxY),
+                    x: nextX,
+                    y: nextY,
                 }));
                 return;
             }
 
             const dx = event.clientX - action.startX;
             const dy = event.clientY - action.startY;
-            const nextWidth = clamp(action.startRect.width + dx, minWidth, parentW - rect.x);
-            const nextHeight = clamp(action.startRect.height + dy, minHeight, parentH - rect.y);
+            let nextWidth = clamp(action.startRect.width + dx, minWidth, parentW - rect.x);
+            let nextHeight = clamp(action.startRect.height + dy, minHeight, parentH - rect.y);
+
+            const rightEdge = rect.x + nextWidth;
+            const bottomEdge = rect.y + nextHeight;
+
+            const rightTargets: number[] = [parentW];
+            const bottomTargets: number[] = [parentH];
+
+            for (const sib of siblingPanels) {
+                rightTargets.push(sib.offsetLeft, sib.offsetLeft + sib.offsetWidth);
+                bottomTargets.push(sib.offsetTop, sib.offsetTop + sib.offsetHeight);
+            }
+
+            const snappedRight = nearestSnap(rightEdge, rightTargets, snapThreshold);
+            const snappedBottom = nearestSnap(bottomEdge, bottomTargets, snapThreshold);
+
+            nextWidth = clamp(snappedRight - rect.x, minWidth, parentW - rect.x);
+            nextHeight = clamp(snappedBottom - rect.y, minHeight, parentH - rect.y);
 
             setRect(prev => ({
                 ...prev,
