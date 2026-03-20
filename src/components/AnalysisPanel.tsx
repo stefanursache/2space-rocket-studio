@@ -11,6 +11,8 @@ export const AnalysisPanel: React.FC = () => {
     const { rocket, stability, selectedMotor, unitSystem: us } = useStore();
     const motorPosition = useStore(s => s.motorPosition);
     const [compareExtended, setCompareExtended] = useState(false);
+    const [positionReference, setPositionReference] = useState<'top' | 'bottom'>('top');
+    const [percentMode, setPercentMode] = useState<'length' | 'target'>('length');
 
     const analysis = useMemo(() => {
         const positions = getComponentPositions(rocket);
@@ -113,6 +115,16 @@ export const AnalysisPanel: React.FC = () => {
         () => calculateStability(rocket, selectedMotor, motorPosition, undefined, undefined, { model: 'extended-high-alpha', alphaDeg: 12 }),
         [rocket, selectedMotor, motorPosition]
     );
+
+    const fromBottom = positionReference === 'bottom';
+    const cgDisplay = stability ? (fromBottom ? (stability.totalLength - stability.cg) : stability.cg) : 0;
+    const cpDisplay = stability ? (fromBottom ? (stability.totalLength - stability.cp) : stability.cp) : 0;
+    const stabilityPercentLength = stability && stability.totalLength > 0
+        ? ((stability.cp - stability.cg) / stability.totalLength) * 100
+        : 0;
+    const stabilityPercentTarget = stability ? stability.stabilityMargin * 100 : 0;
+    const stabilityPercent = percentMode === 'length' ? stabilityPercentLength : stabilityPercentTarget;
+    const stabilityPercentLabel = percentMode === 'length' ? '% of length' : '% of 1-cal target';
 
     return (
         <div className="analysis-panel">
@@ -230,16 +242,48 @@ export const AnalysisPanel: React.FC = () => {
                         Compare with Extended high-α model (Jorgensen-style body correction, α = 12°)
                     </label>
                 </div>
+                <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                        className={`view-btn ${!fromBottom ? 'active' : ''}`}
+                        onClick={() => setPositionReference('top')}
+                        title="Measure CG/CP from rocket nose"
+                    >
+                        From Top (Nose)
+                    </button>
+                    <button
+                        className={`view-btn ${fromBottom ? 'active' : ''}`}
+                        onClick={() => setPositionReference('bottom')}
+                        title="Measure CG/CP from rocket tail"
+                    >
+                        From Bottom (Tail)
+                    </button>
+                </div>
+                <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                        className={`view-btn ${percentMode === 'length' ? 'active' : ''}`}
+                        onClick={() => setPercentMode('length')}
+                        title="Stability percent relative to total rocket length"
+                    >
+                        % of Length
+                    </button>
+                    <button
+                        className={`view-btn ${percentMode === 'target' ? 'active' : ''}`}
+                        onClick={() => setPercentMode('target')}
+                        title="Stability percent relative to 1-caliber target"
+                    >
+                        % of 1-cal Target
+                    </button>
+                </div>
                 {stability ? (
                     <>
                         <div className="analysis-grid">
                             <div className="analysis-item">
-                                <span className="a-label">CG Position</span>
-                                <span className="a-value">{fmtU(stability.cg, 'cm', us)}</span>
+                                <span className="a-label">CG ({fromBottom ? 'from tail' : 'from nose'})</span>
+                                <span className="a-value">{fmtU(cgDisplay, 'cm', us)}</span>
                             </div>
                             <div className="analysis-item">
-                                <span className="a-label">CP Position</span>
-                                <span className="a-value">{fmtU(stability.cp, 'cm', us)}</span>
+                                <span className="a-label">CP ({fromBottom ? 'from tail' : 'from nose'})</span>
+                                <span className="a-value">{fmtU(cpDisplay, 'cm', us)}</span>
                             </div>
                             <div className="analysis-item">
                                 <span className="a-label">Stability Margin</span>
@@ -248,6 +292,10 @@ export const AnalysisPanel: React.FC = () => {
                             <div className="analysis-item">
                                 <span className="a-label">Static Margin</span>
                                 <span className="a-value">{fmtU(stability.cp - stability.cg, 'cm', us)}</span>
+                            </div>
+                            <div className="analysis-item">
+                                <span className="a-label">Stability (%)</span>
+                                <span className="a-value">{stabilityPercent.toFixed(2)} {stabilityPercentLabel}</span>
                             </div>
                         </div>
                         <div className={`stability-status ${stability.stabilityMargin < 1 ? 'unstable' :

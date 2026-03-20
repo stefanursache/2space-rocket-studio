@@ -73,9 +73,9 @@ function App() {
                             <DockablePanel
                                 id="design-stability"
                                 title="Stability & Flight Data"
-                                initialRect={{ x: 10, y: 580, width: 340, height: 290 }}
+                                initialRect={{ x: 10, y: 580, width: 340, height: 380 }}
                                 minWidth={280}
-                                minHeight={220}
+                                minHeight={320}
                             >
                                 <StabilityInfo />
                             </DockablePanel>
@@ -114,9 +114,9 @@ function App() {
                         <DockablePanel
                             id="analysis-stability"
                             title="Stability & Flight Data"
-                            initialRect={{ x: 1130, y: 10, width: 340, height: 520 }}
+                            initialRect={{ x: 1130, y: 10, width: 340, height: 640 }}
                             minWidth={280}
-                            minHeight={220}
+                            minHeight={320}
                         >
                             <StabilityInfo />
                         </DockablePanel>

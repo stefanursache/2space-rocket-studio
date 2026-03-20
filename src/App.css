@@ -1066,8 +1066,9 @@
     border-top: 1px solid var(--border);
     padding: 8px 10px;
     background: var(--bg-panel);
-    overflow-y: auto;
-    max-height: 38%;
+    overflow: visible;
+    max-height: none;
+    height: 100%;
 }
 
 .stability-info h3 {
@@ -1077,6 +1078,36 @@
     letter-spacing: 0.8px;
     color: var(--text-muted);
     margin: 0 0 8px 0;
+}
+
+.stability-ref-toggle {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.stability-ref-btn {
+    flex: 1;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 5px 6px;
+    cursor: pointer;
+    transition: all 0.12s;
+}
+
+.stability-ref-btn:hover {
+    color: var(--text);
+    border-color: var(--border-light);
+}
+
+.stability-ref-btn.active {
+    background: var(--primary-dark);
+    border-color: var(--primary);
+    color: #fff;
 }
 
 .stability-indicator {
@@ -1113,6 +1144,13 @@
     display: flex;
     align-items: baseline;
     gap: 2px;
+}
+
+.stability-percent {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-top: 2px;
 }
 
 .margin-value {
