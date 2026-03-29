@@ -567,6 +567,14 @@
     overflow: auto;
 }
 
+.dock-panel.collapsed .dock-panel-body {
+    display: none;
+}
+
+.dock-panel.collapsed {
+    overflow: hidden;
+}
+
 .dock-panel-resize {
     position: absolute;
     width: 14px;

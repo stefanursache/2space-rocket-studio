@@ -14,6 +14,7 @@ interface DockablePanelProps {
     minWidth?: number;
     minHeight?: number;
     pinnable?: boolean;
+    collapsible?: boolean;
     children: React.ReactNode;
 }
 
@@ -41,13 +42,18 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
     minWidth = 260,
     minHeight = 180,
     pinnable = false,
+    collapsible = false,
     children,
 }) => {
     const [rect, setRect] = useState<Rect>(initialRect);
     const [action, setAction] = useState<ActionState>(null);
     const [pinSide, setPinSide] = useState<'left' | 'right' | null>(null);
+    const [collapsed, setCollapsed] = useState(false);
     const [zIndex, setZIndex] = useState(10);
     const panelRef = useRef<HTMLDivElement>(null);
+    const lastExpandedRectRef = useRef<Rect>(initialRect);
+    const COLLAPSED_HEADER_SIZE = 30;
+    const COLLAPSED_PINNED_WIDTH = 34;
 
     useEffect(() => {
         const saved = localStorage.getItem(`dock-panel:${id}`);
@@ -76,10 +82,19 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
     }, [id]);
 
     useEffect(() => {
+        const savedCollapsed = localStorage.getItem(`dock-panel-collapsed:${id}`);
+        if (savedCollapsed === '1') {
+            setCollapsed(true);
+        }
+    }, [id]);
+
+    useEffect(() => {
         const onReset = () => {
             setRect(initialRect);
             setPinSide(null);
+            setCollapsed(false);
             localStorage.removeItem(`dock-panel-pin:${id}`);
+            localStorage.removeItem(`dock-panel-collapsed:${id}`);
         };
         window.addEventListener('dock-panels-reset', onReset as EventListener);
         return () => {
@@ -95,6 +110,17 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
         if (pinSide) localStorage.setItem(`dock-panel-pin:${id}`, pinSide);
         else localStorage.removeItem(`dock-panel-pin:${id}`);
     }, [id, pinSide]);
+
+    useEffect(() => {
+        if (collapsed) localStorage.setItem(`dock-panel-collapsed:${id}`, '1');
+        else localStorage.removeItem(`dock-panel-collapsed:${id}`);
+    }, [collapsed, id]);
+
+    useEffect(() => {
+        if (!collapsed) {
+            lastExpandedRectRef.current = rect;
+        }
+    }, [collapsed, rect]);
 
     useEffect(() => {
         if (!pinSide) return;
@@ -214,6 +240,38 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
         setZIndex(Date.now() % 100000);
     };
 
+    const toggleCollapsed = () => {
+        const panel = panelRef.current;
+        const parent = panel?.offsetParent as HTMLElement | null;
+        const parentW = parent?.clientWidth ?? window.innerWidth;
+
+        if (!collapsed) {
+            lastExpandedRectRef.current = rect;
+            setCollapsed(true);
+            setRect(prev => ({
+                ...prev,
+                width: pinSide ? COLLAPSED_PINNED_WIDTH : prev.width,
+                height: pinSide ? prev.height : COLLAPSED_HEADER_SIZE,
+                x: pinSide === 'right' ? Math.max(0, parentW - COLLAPSED_PINNED_WIDTH) : prev.x,
+            }));
+            return;
+        }
+
+        const expandRect = lastExpandedRectRef.current;
+        const nextX = pinSide === 'right'
+            ? Math.max(0, parentW - expandRect.width)
+            : pinSide === 'left'
+                ? 0
+                : rect.x;
+        setCollapsed(false);
+        setRect(prev => ({
+            ...prev,
+            x: nextX,
+            width: expandRect.width,
+            height: expandRect.height,
+        }));
+    };
+
     const pinTo = (side: 'left' | 'right') => {
         const panel = panelRef.current;
         const parent = panel?.offsetParent as HTMLElement | null;
@@ -228,7 +286,7 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
     return (
         <div
             ref={panelRef}
-            className="dock-panel"
+            className={`dock-panel${collapsed ? ' collapsed' : ''}${pinSide ? ` pinned-${pinSide}` : ''}`}
             style={{
                 left: `${rect.x}px`,
                 top: `${rect.y}px`,
@@ -255,6 +313,20 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
                 <span className="dock-panel-title">{title}</span>
                 {pinnable && (
                     <div className="dock-panel-pin-controls">
+                        {collapsible && (
+                            <button
+                                className="dock-pin-btn"
+                                title={collapsed ? 'Extend panel' : 'Retract panel'}
+                                onPointerDown={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    onBringToFront();
+                                    toggleCollapsed();
+                                }}
+                            >
+                                {collapsed ? '⤢' : '⤡'}
+                            </button>
+                        )}
                         <button
                             className={`dock-pin-btn ${pinSide === 'left' ? 'active' : ''}`}
                             title="Pin to left"
@@ -285,21 +357,23 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
 
             <div className="dock-panel-body">{children}</div>
 
-            <div
-                className="dock-panel-resize"
-                onPointerDown={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onBringToFront();
-                    setAction({
-                        type: 'resize',
-                        startX: event.clientX,
-                        startY: event.clientY,
-                        startRect: rect,
-                    });
-                }}
-                title="Resize panel"
-            />
+            {!collapsed && (
+                <div
+                    className="dock-panel-resize"
+                    onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onBringToFront();
+                        setAction({
+                            type: 'resize',
+                            startX: event.clientX,
+                            startY: event.clientY,
+                            startRect: rect,
+                        });
+                    }}
+                    title="Resize panel"
+                />
+            )}
         </div>
     );
 };

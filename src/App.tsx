@@ -56,6 +56,8 @@ function App() {
                                 initialRect={{ x: 10, y: 10, width: 340, height: 560 }}
                                 minWidth={280}
                                 minHeight={260}
+                                pinnable={true}
+                                collapsible={true}
                             >
                                 <ComponentTree />
                             </DockablePanel>
@@ -66,6 +68,8 @@ function App() {
                                 initialRect={{ x: 980, y: 10, width: 360, height: 700 }}
                                 minWidth={300}
                                 minHeight={320}
+                                pinnable={true}
+                                collapsible={true}
                             >
                                 <ComponentEditor />
                             </DockablePanel>
