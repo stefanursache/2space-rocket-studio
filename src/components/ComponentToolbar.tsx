@@ -20,13 +20,13 @@ interface ComponentButton {
 
 const COMPONENT_BUTTONS: ComponentButton[] = [
     // Body components
-    { label: 'Nose Cone', icon: '◢', category: 'body', factory: createNoseCone, requiresParent: false, tooltip: 'Add a nose cone' },
+    { label: 'Nose Cone', icon: '🔺', category: 'body', factory: createNoseCone, requiresParent: false, tooltip: 'Add a nose cone' },
     { label: 'Body Tube', icon: '▭', category: 'body', factory: createBodyTube, requiresParent: false, tooltip: 'Add a body tube' },
-    { label: 'Transition', icon: '⧋', category: 'body', factory: createTransition, requiresParent: false, tooltip: 'Add a transition' },
+    { label: 'Transition', icon: '🔻', category: 'body', factory: createTransition, requiresParent: false, tooltip: 'Add a transition' },
 
     // Fin components
-    { label: 'Trapezoidal Fin Set', icon: '◣', category: 'fins', factory: createTrapezoidFinSet, requiresParent: true, tooltip: 'Add trapezoidal fins' },
-    { label: 'Elliptical Fin Set', icon: '◠', category: 'fins', factory: createEllipticalFinSet, requiresParent: true, tooltip: 'Add elliptical fins' },
+    { label: 'Trapezoidal Fin Set', icon: '🪶', category: 'fins', factory: createTrapezoidFinSet, requiresParent: true, tooltip: 'Add trapezoidal fins' },
+    { label: 'Elliptical Fin Set', icon: '🪽', category: 'fins', factory: createEllipticalFinSet, requiresParent: true, tooltip: 'Add elliptical fins' },
     { label: 'Freeform Fin Set', icon: '✎', category: 'fins', factory: createFreeformFinSet, requiresParent: true, tooltip: 'Add freeform fins' },
 
     // Internal components
@@ -38,12 +38,12 @@ const COMPONENT_BUTTONS: ComponentButton[] = [
 
     // External components
     { label: 'Launch Lug', icon: '⊣', category: 'external', factory: createLaunchLug, requiresParent: true, tooltip: 'Add a launch lug' },
-    { label: 'Airbrakes', icon: '✥', category: 'external', factory: createAirbrakes, requiresParent: true, tooltip: 'Add deployable airbrakes' },
+    { label: 'Airbrakes', icon: '🛑', category: 'external', factory: createAirbrakes, requiresParent: true, tooltip: 'Add deployable airbrakes' },
 
     // Recovery
     { label: 'Parachute', icon: '🪂', category: 'recovery', factory: createParachute, requiresParent: true, tooltip: 'Add a parachute' },
     { label: 'Streamer', icon: '⚐', category: 'recovery', factory: createStreamer, requiresParent: true, tooltip: 'Add a streamer' },
-    { label: 'Shock Cord', icon: '≈', category: 'recovery', factory: createShockCord, requiresParent: true, tooltip: 'Add a shock cord' },
+    { label: 'Shock Cord', icon: '🧵', category: 'recovery', factory: createShockCord, requiresParent: true, tooltip: 'Add a shock cord' },
 
     // Mass
     { label: 'Mass Component', icon: '⚖', category: 'mass', factory: createMassObject, requiresParent: true, tooltip: 'Add a mass component' },
@@ -100,7 +100,7 @@ export const ComponentToolbar: React.FC = () => {
 
     const categories = [
         { key: 'body', label: 'Body', icon: '🚀' },
-        { key: 'fins', label: 'Fins', icon: '◣' },
+        { key: 'fins', label: 'Fins', icon: '🪽' },
         { key: 'internal', label: 'Internal', icon: '◉' },
         { key: 'external', label: 'External', icon: '⊣' },
         { key: 'recovery', label: 'Recovery', icon: '🪂' },

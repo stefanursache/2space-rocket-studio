@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { useAuthStore } from '../store/useAuthStore';
 
@@ -13,6 +13,8 @@ export const Toolbar: React.FC = () => {
     const { session, setShowAuthModal, setShowAdminPanel, setShowUserRockets, setShowUserSettings, setShowWorkspaces, logout, preferences, isAdminDeviceAuthorized } = useAuthStore();
 
     const loginBtnColor = preferences?.loginButtonColor || '#3b8eed';
+    const [openMenu, setOpenMenu] = useState<'project' | 'workspace' | null>(null);
+    const toolbarLeftRef = useRef<HTMLDivElement>(null);
 
     const resetPanelLayout = () => {
         const keysToRemove: string[] = [];
@@ -24,9 +26,20 @@ export const Toolbar: React.FC = () => {
         window.dispatchEvent(new Event('dock-panels-reset'));
     };
 
+    useEffect(() => {
+        const onOutside = (event: MouseEvent) => {
+            if (!toolbarLeftRef.current) return;
+            if (!toolbarLeftRef.current.contains(event.target as Node)) {
+                setOpenMenu(null);
+            }
+        };
+        window.addEventListener('mousedown', onOutside);
+        return () => window.removeEventListener('mousedown', onOutside);
+    }, []);
+
     return (
         <div className="toolbar">
-            <div className="toolbar-left">
+            <div className="toolbar-left" ref={toolbarLeftRef}>
                 <div className="app-logo">
                     <span className="logo-icon">◈</span>
                     <span className="logo-text">2SPACE Rocket Studio</span>
@@ -34,29 +47,59 @@ export const Toolbar: React.FC = () => {
 
                 <div className="toolbar-separator" />
 
-                <button className="toolbar-btn" onClick={newRocket} title="New Rocket">
-                    <span className="btn-icon">＋</span>
-                    <span className="btn-label">New</span>
-                </button>
-                <button className="toolbar-btn" onClick={loadExampleRocket} title="Load Example Rocket">
-                    <span className="btn-icon">✦</span>
-                    <span className="btn-label">Example</span>
-                </button>
+                <div className="toolbar-menu-wrap">
+                    <button
+                        className={`toolbar-menu-trigger ${openMenu === 'project' ? 'active' : ''}`}
+                        onClick={() => setOpenMenu(prev => prev === 'project' ? null : 'project')}
+                        title="Project actions"
+                    >
+                        <span className="btn-icon">✦</span>
+                        <span className="btn-label">Project</span>
+                        <span className="toolbar-menu-caret">▾</span>
+                    </button>
+                    {openMenu === 'project' && (
+                        <div className="toolbar-menu-dropdown">
+                            <button className="toolbar-menu-item" onClick={() => { newRocket(); setOpenMenu(null); }}>
+                                <span className="btn-icon">＋</span>
+                                <span>New</span>
+                            </button>
+                            <button className="toolbar-menu-item" onClick={() => { loadExampleRocket(); setOpenMenu(null); }}>
+                                <span className="btn-icon">✦</span>
+                                <span>Example</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
 
                 <div className="toolbar-separator" />
 
-                <button className="toolbar-btn" onClick={saveRocketToFile} title="Download rocket as file">
-                    <span className="btn-icon">⤓</span>
-                    <span className="btn-label">Download</span>
-                </button>
-                <button className="toolbar-btn" onClick={loadRocketFromFile} title="Open rocket from file (.ork.json or .ork)">
-                    <span className="btn-icon">📂</span>
-                    <span className="btn-label">Open</span>
-                </button>
-                <button className="toolbar-btn" onClick={resetPanelLayout} title="Reset movable/resizable panel layout">
-                    <span className="btn-icon">↺</span>
-                    <span className="btn-label">Reset Panels</span>
-                </button>
+                <div className="toolbar-menu-wrap">
+                    <button
+                        className={`toolbar-menu-trigger ${openMenu === 'workspace' ? 'active' : ''}`}
+                        onClick={() => setOpenMenu(prev => prev === 'workspace' ? null : 'workspace')}
+                        title="Workspace actions"
+                    >
+                        <span className="btn-icon">📁</span>
+                        <span className="btn-label">Workspace</span>
+                        <span className="toolbar-menu-caret">▾</span>
+                    </button>
+                    {openMenu === 'workspace' && (
+                        <div className="toolbar-menu-dropdown">
+                            <button className="toolbar-menu-item" onClick={() => { saveRocketToFile(); setOpenMenu(null); }}>
+                                <span className="btn-icon">⤓</span>
+                                <span>Download</span>
+                            </button>
+                            <button className="toolbar-menu-item" onClick={() => { loadRocketFromFile(); setOpenMenu(null); }}>
+                                <span className="btn-icon">📂</span>
+                                <span>Open</span>
+                            </button>
+                            <button className="toolbar-menu-item" onClick={() => { resetPanelLayout(); setOpenMenu(null); }}>
+                                <span className="btn-icon">↺</span>
+                                <span>Reset Panels</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
 
                 <div className="toolbar-separator" />
 
