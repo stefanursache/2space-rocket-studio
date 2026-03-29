@@ -528,6 +528,39 @@
     letter-spacing: 0.2px;
 }
 
+.dock-panel-pin-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.dock-pin-btn {
+    width: 22px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.12s;
+}
+
+.dock-pin-btn:hover {
+    border-color: var(--border-light);
+    color: var(--text);
+    background: var(--bg-hover);
+}
+
+.dock-pin-btn.active {
+    color: #fff;
+    background: var(--primary-dark);
+    border-color: var(--primary);
+}
+
 .dock-panel-body {
     flex: 1;
     min-height: 0;

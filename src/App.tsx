@@ -76,6 +76,7 @@ function App() {
                                 initialRect={{ x: 10, y: 580, width: 340, height: 380 }}
                                 minWidth={280}
                                 minHeight={320}
+                                pinnable={true}
                             >
                                 <StabilityInfo />
                             </DockablePanel>
@@ -117,6 +118,7 @@ function App() {
                             initialRect={{ x: 1130, y: 10, width: 340, height: 640 }}
                             minWidth={280}
                             minHeight={320}
+                            pinnable={true}
                         >
                             <StabilityInfo />
                         </DockablePanel>

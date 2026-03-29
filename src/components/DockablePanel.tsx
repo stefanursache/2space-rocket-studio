@@ -13,6 +13,7 @@ interface DockablePanelProps {
     initialRect: Rect;
     minWidth?: number;
     minHeight?: number;
+    pinnable?: boolean;
     children: React.ReactNode;
 }
 
@@ -39,10 +40,12 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
     initialRect,
     minWidth = 260,
     minHeight = 180,
+    pinnable = false,
     children,
 }) => {
     const [rect, setRect] = useState<Rect>(initialRect);
     const [action, setAction] = useState<ActionState>(null);
+    const [pinSide, setPinSide] = useState<'left' | 'right' | null>(null);
     const [zIndex, setZIndex] = useState(10);
     const panelRef = useRef<HTMLDivElement>(null);
 
@@ -66,18 +69,50 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
     }, [id]);
 
     useEffect(() => {
+        const savedPin = localStorage.getItem(`dock-panel-pin:${id}`);
+        if (savedPin === 'left' || savedPin === 'right') {
+            setPinSide(savedPin);
+        }
+    }, [id]);
+
+    useEffect(() => {
         const onReset = () => {
             setRect(initialRect);
+            setPinSide(null);
+            localStorage.removeItem(`dock-panel-pin:${id}`);
         };
         window.addEventListener('dock-panels-reset', onReset as EventListener);
         return () => {
             window.removeEventListener('dock-panels-reset', onReset as EventListener);
         };
-    }, [initialRect]);
+    }, [id, initialRect]);
 
     useEffect(() => {
         localStorage.setItem(`dock-panel:${id}`, JSON.stringify(rect));
     }, [id, rect]);
+
+    useEffect(() => {
+        if (pinSide) localStorage.setItem(`dock-panel-pin:${id}`, pinSide);
+        else localStorage.removeItem(`dock-panel-pin:${id}`);
+    }, [id, pinSide]);
+
+    useEffect(() => {
+        if (!pinSide) return;
+
+        const updatePinnedX = () => {
+            const panel = panelRef.current;
+            const parent = panel?.offsetParent as HTMLElement | null;
+            const parentW = parent?.clientWidth ?? window.innerWidth;
+            setRect(prev => ({
+                ...prev,
+                x: pinSide === 'left' ? 0 : Math.max(0, parentW - prev.width),
+            }));
+        };
+
+        updatePinnedX();
+        window.addEventListener('resize', updatePinnedX);
+        return () => window.removeEventListener('resize', updatePinnedX);
+    }, [pinSide]);
 
     useEffect(() => {
         if (!action) return;
@@ -129,7 +164,7 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
 
                 setRect(prev => ({
                     ...prev,
-                    x: nextX,
+                    x: pinSide ? prev.x : nextX,
                     y: nextY,
                 }));
                 return;
@@ -179,6 +214,17 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
         setZIndex(Date.now() % 100000);
     };
 
+    const pinTo = (side: 'left' | 'right') => {
+        const panel = panelRef.current;
+        const parent = panel?.offsetParent as HTMLElement | null;
+        const parentW = parent?.clientWidth ?? window.innerWidth;
+        setPinSide(side);
+        setRect(prev => ({
+            ...prev,
+            x: side === 'left' ? 0 : Math.max(0, parentW - prev.width),
+        }));
+    };
+
     return (
         <div
             ref={panelRef}
@@ -197,6 +243,7 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
                 onPointerDown={(event) => {
                     event.preventDefault();
                     onBringToFront();
+                    setPinSide(null);
                     setAction({
                         type: 'drag',
                         startX: event.clientX,
@@ -206,6 +253,34 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
                 }}
             >
                 <span className="dock-panel-title">{title}</span>
+                {pinnable && (
+                    <div className="dock-panel-pin-controls">
+                        <button
+                            className={`dock-pin-btn ${pinSide === 'left' ? 'active' : ''}`}
+                            title="Pin to left"
+                            onPointerDown={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onBringToFront();
+                                pinTo('left');
+                            }}
+                        >
+                            ⟸
+                        </button>
+                        <button
+                            className={`dock-pin-btn ${pinSide === 'right' ? 'active' : ''}`}
+                            title="Pin to right"
+                            onPointerDown={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onBringToFront();
+                                pinTo('right');
+                            }}
+                        >
+                            ⟹
+                        </button>
+                    </div>
+                )}
             </div>
 
             <div className="dock-panel-body">{children}</div>
