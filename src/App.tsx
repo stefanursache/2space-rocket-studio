@@ -81,6 +81,7 @@ function App() {
                                 minWidth={280}
                                 minHeight={320}
                                 pinnable={true}
+                                collapsible={true}
                             >
                                 <StabilityInfo />
                             </DockablePanel>
@@ -123,6 +124,7 @@ function App() {
                             minWidth={280}
                             minHeight={320}
                             pinnable={true}
+                            collapsible={true}
                         >
                             <StabilityInfo />
                         </DockablePanel>

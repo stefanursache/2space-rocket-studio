@@ -324,7 +324,7 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
                                     toggleCollapsed();
                                 }}
                             >
-                                {collapsed ? '⤢' : '⤡'}
+                                {collapsed ? '⊞' : '⊟'}
                             </button>
                         )}
                         <button
@@ -337,7 +337,7 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
                                 pinTo('left');
                             }}
                         >
-                            ⟸
+                            ←
                         </button>
                         <button
                             className={`dock-pin-btn ${pinSide === 'right' ? 'active' : ''}`}
@@ -349,7 +349,7 @@ export const DockablePanel: React.FC<DockablePanelProps> = ({
                                 pinTo('right');
                             }}
                         >
-                            ⟹
+                            →
                         </button>
                     </div>
                 )}
