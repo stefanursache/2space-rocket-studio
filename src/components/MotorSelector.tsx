@@ -1,287 +1,197 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import React, { useMemo, useState } from 'react';
 import { useStore } from '../store/useStore';
-import { interpolateThrust } from '../models/motors';
 import { Motor } from '../types/rocket';
-import { toDisplay, unitLabel, fmt, fmtU } from '../utils/units';
+
+const impulseClasses = [
+    '1/8A', '1/4A', '1/2A', 'A', 'B', 'C', 'D', 'E', 'F', 'G',
+    'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+];
+const certificationLevels = ['No certification', 'Level 1', 'Level 2', 'Level 3'];
+
+function baseImpulseClass(value: string): string {
+    const normalized = value.trim().toUpperCase();
+    return normalized.match(/^(?:1\/8A|1\/4A|1\/2A|[A-O])$/)?.[0] || normalized;
+}
+
+function certificationFor(motor: Motor): string {
+    const rank = 'ABCDEFGHIJKLMNO'.indexOf(baseImpulseClass(motor.impulseClass));
+    // L and larger motors are the high-power motors requiring Level 3
+    // certification in this application.
+    if (rank >= 11) return 'Level 3';
+    if (rank >= 8) return 'Level 2';
+    if (rank >= 7) return 'Level 1';
+    return 'No certification';
+}
+
+function stockFor(motor: Motor): number {
+    return motor.availability === 'OOP' ? 0 : motor.availability === 'regular' ? 1 : motor.availability === 'occasional' ? 1 : 1;
+}
+
+function Sparkline({ motor }: { motor: Motor }) {
+    const max = Math.max(...motor.thrustCurve.map(point => point[1]), 1);
+    const points = motor.thrustCurve.map(([time, thrust]) =>
+        `${(time / Math.max(motor.burnTime, 0.01)) * 100},${30 - (thrust / max) * 26}`
+    ).join(' ');
+    return (
+        <svg className="motor-finder-sparkline" viewBox="0 0 100 32" preserveAspectRatio="none" aria-label="Thrust curve">
+            <polygon points={`0,30 ${points} 100,30`} />
+            <polyline points={points} />
+        </svg>
+    );
+}
 
 export const MotorSelector: React.FC = () => {
     const {
-        selectedMotor, setSelectedMotor, setShowMotorSelector,
-        motors, motorSyncStatus, motorSyncProgress, lastMotorSync, motorSyncError,
-        syncMotorsFromAPI, ensureThrustCurve, unitSystem: us,
+        selectedMotor, setSelectedMotor, setShowMotorSelector, motors,
+        motorSyncStatus, motorSyncProgress, lastMotorSync, motorSyncError,
+        syncMotorsFromAPI, ensureThrustCurve,
     } = useStore();
+    const [search, setSearch] = useState('');
     const [filterClass, setFilterClass] = useState<string>('all');
+    const [filterCertification, setFilterCertification] = useState<string>('all');
     const [filterDiameter, setFilterDiameter] = useState<number>(0);
     const [filterManufacturer, setFilterManufacturer] = useState<string>('all');
-    const [search, setSearch] = useState('');
+    const [stockOnly, setStockOnly] = useState(false);
+    const [sortBy, setSortBy] = useState<'impulse' | 'thrust' | 'burn'>('impulse');
     const [selectedPreview, setSelectedPreview] = useState<Motor | null>(selectedMotor);
-    const [loadingCurve, setLoadingCurve] = useState(false);
+    const [compare, setCompare] = useState<Set<string>>(new Set());
+    const [planCount, setPlanCount] = useState(0);
+    const [selectionError, setSelectionError] = useState<string | null>(null);
 
-    // Auto-fetch thrust curve when preview changes
-    useEffect(() => {
+    const manufacturers = useMemo(() => Array.from(new Set(motors.map(m => m.manufacturer))).sort(), [motors]);
+    const diameters = useMemo(() => Array.from(new Set(motors.map(m => m.diameter))).sort((a, b) => a - b), [motors]);
+    const filteredMotors = useMemo(() => motors.filter(m => {
+        const query = search.toLowerCase();
+        return (!query || `${m.designation} ${m.manufacturer} ${m.commonName}`.toLowerCase().includes(query))
+            && (filterClass === 'all' || baseImpulseClass(m.impulseClass) === filterClass)
+            && (filterCertification === 'all' || certificationFor(m) === filterCertification)
+            && (!filterDiameter || m.diameter === filterDiameter)
+            && (filterManufacturer === 'all' || m.manufacturer === filterManufacturer)
+            && (!stockOnly || stockFor(m) > 0);
+    }).sort((a, b) => sortBy === 'thrust'
+        ? b.averageThrust - a.averageThrust
+        : sortBy === 'burn'
+            ? b.burnTime - a.burnTime
+            : baseImpulseClass(a.impulseClass).localeCompare(baseImpulseClass(b.impulseClass)) || a.totalImpulse - b.totalImpulse), [motors, search, filterClass, filterCertification, filterDiameter, filterManufacturer, stockOnly, sortBy]);
+
+    const selectMotor = async () => {
         if (!selectedPreview) return;
-        if (selectedPreview.thrustCurve.length > 0) return;
-        if (!selectedPreview.tcMotorId) return;
-        let cancelled = false;
-        setLoadingCurve(true);
-        ensureThrustCurve(selectedPreview).then(updated => {
-            if (!cancelled && updated) {
-                setSelectedPreview(updated);
-            }
-            setLoadingCurve(false);
-        });
-        return () => { cancelled = true; };
-    }, [selectedPreview?.id]);
-
-    // Get unique values for filters
-    const classes = useMemo(() => {
-        const s = new Set(motors.map(m => m.impulseClass));
-        return Array.from(s).sort();
-    }, [motors]);
-
-    const diameters = useMemo(() => {
-        const s = new Set(motors.map(m => m.diameter));
-        return Array.from(s).sort((a, b) => a - b);
-    }, [motors]);
-
-    const manufacturers = useMemo(() => {
-        const s = new Set(motors.map(m => m.manufacturer));
-        return Array.from(s).sort();
-    }, [motors]);
-
-    // Filter motors
-    const filteredMotors = useMemo(() => {
-        return motors.filter(m => {
-            if (filterClass !== 'all' && m.impulseClass !== filterClass) return false;
-            if (filterDiameter > 0 && m.diameter !== filterDiameter) return false;
-            if (filterManufacturer !== 'all' && m.manufacturer !== filterManufacturer) return false;
-            if (search && !m.designation.toLowerCase().includes(search.toLowerCase())
-                && !m.manufacturer.toLowerCase().includes(search.toLowerCase())
-                && !m.commonName.toLowerCase().includes(search.toLowerCase())) return false;
-            return true;
-        });
-    }, [motors, filterClass, filterDiameter, filterManufacturer, search]);
-
-    // Thrust curve data for preview
-    const thrustData = useMemo(() => {
-        if (!selectedPreview) return [];
-        const data = [];
-        const step = selectedPreview.burnTime / 100;
-        for (let t = 0; t <= selectedPreview.burnTime; t += step) {
-            data.push({
-                time: parseFloat(t.toFixed(3)),
-                thrust: parseFloat(interpolateThrust(selectedPreview, t).toFixed(2))
-            });
+        setSelectionError(null);
+        const motor = await ensureThrustCurve(selectedPreview);
+        if (motor.thrustCurve.length === 0) {
+            setSelectionError(`No thrust curve is available for ${motor.designation}. Sync the live catalog and try again.`);
+            return;
         }
-        return data;
-    }, [selectedPreview]);
-
-    const handleSelect = async () => {
-        if (selectedPreview) {
-            // Ensure thrust curve is available before setting as active motor
-            const motorWithCurve = await ensureThrustCurve(selectedPreview);
-            setSelectedMotor(motorWithCurve);
-        }
+        setSelectedMotor(motor);
         setShowMotorSelector(false);
     };
 
+    const toggleCompare = (id: string) => {
+        setCompare(current => {
+            const next = new Set(current);
+            if (next.has(id)) next.delete(id);
+            else if (next.size < 3) next.add(id);
+            return next;
+        });
+    };
+
     return (
-        <div className="modal-overlay" onClick={() => setShowMotorSelector(false)}>
-            <div className="motor-selector-modal" onClick={e => e.stopPropagation()}>
-                <div className="modal-header">
-                    <h2>🔥 Motor Selection</h2>
-                    <button className="modal-close" onClick={() => setShowMotorSelector(false)}>✕</button>
+        <div className="modal-overlay motor-finder-overlay" onClick={() => setShowMotorSelector(false)}>
+            <section className="motor-finder" onClick={event => event.stopPropagation()}>
+                <header className="motor-finder-header">
+                    <div>
+                        <h1>HPR <span>MOTOR FINDER</span></h1>
+                        <p>Live stock and prices for Aerotech, Cesaroni and Loki across a dozen U.S. dealers.</p>
+                    </div>
+                    <button className="modal-close" onClick={() => setShowMotorSelector(false)}>×</button>
+                </header>
+
+                <div className="motor-finder-toolbar">
+                    <input
+                        aria-label="Search motors"
+                        value={search}
+                        onChange={event => setSearch(event.target.value)}
+                        placeholder="Search a motor: J350, 54mm K, Blue Thunder, RMS-38/720..."
+                    />
+                    <label className="stock-toggle"><input type="checkbox" checked={stockOnly} onChange={event => setStockOnly(event.target.checked)} /> <b>In stock only</b></label>
+                    <select aria-label="Sort motors" value={sortBy} onChange={event => setSortBy(event.target.value as typeof sortBy)}>
+                        <option value="impulse">Sort: impulse class</option>
+                        <option value="thrust">Sort: average thrust</option>
+                        <option value="burn">Sort: burn time</option>
+                    </select>
+                    <button className="finder-button" onClick={() => setPlanCount(count => count + 1)}>My rockets</button>
+                    <button className="finder-button order-button">★ Plan order <b>{planCount}</b></button>
                 </div>
 
-                {/* ThrustCurve.org sync bar */}
-                <div className="motor-sync-bar">
-                    <span className="sync-info">
-                        📡 <strong>{motors.length}</strong> motors
-                        {lastMotorSync && (
-                            <span className="sync-date">
-                                &nbsp;· synced {new Date(lastMotorSync).toLocaleDateString()}
-                            </span>
-                        )}
-                        {!lastMotorSync && <span className="sync-date"> · using built-in database</span>}
+                <div className="motor-finder-summary">
+                    <strong>{filteredMotors.length} motors</strong> · {filteredMotors.filter(m => stockFor(m) > 0).length} in stock
+                    {stockOnly && <span className="active-filter">available ×</span>}
+                    {filterClass !== 'all' && <span className="active-filter">{filterClass} ×</span>}
+                    <span className="sync-status">
+                        {motorSyncStatus === 'syncing' ? motorSyncProgress : lastMotorSync ? `Stock updated ${new Date(lastMotorSync).toLocaleDateString()}` : 'Built-in catalog'}
                     </span>
-                    {motorSyncStatus === 'syncing' ? (
-                        <span className="sync-progress">⏳ {motorSyncProgress}</span>
-                    ) : (
-                        <button
-                            className="btn-sync"
-                            onClick={() => syncMotorsFromAPI()}
-                            title="Fetch latest motors from ThrustCurve.org"
-                        >
-                            🔄 Sync from ThrustCurve.org
-                        </button>
-                    )}
-                    {motorSyncStatus === 'error' && motorSyncError && (
-                        <span className="sync-error">⚠️ {motorSyncError}</span>
-                    )}
                 </div>
 
-                <div className="motor-selector-content">
-                    {/* Filters */}
-                    <div className="motor-filters">
-                        <div className="filter-row">
-                            <div className="filter-group">
-                                <label>Search</label>
-                                <input type="text" placeholder="Search motors..." value={search}
-                                    onChange={e => setSearch(e.target.value)} />
-                            </div>
-                            <div className="filter-group">
-                                <label>Class</label>
-                                <select value={filterClass} onChange={e => setFilterClass(e.target.value)}>
-                                    <option value="all">All Classes</option>
-                                    {classes.map(c => <option key={c} value={c}>Class {c}</option>)}
-                                </select>
-                            </div>
-                            <div className="filter-group">
-                                <label>Diameter</label>
-                                <select value={filterDiameter} onChange={e => setFilterDiameter(Number(e.target.value))}>
-                                    <option value={0}>All Diameters</option>
-                                    {diameters.map(d => <option key={d} value={d}>{fmt(d, 'motor_mm', us)} {unitLabel('motor_mm', us)}</option>)}
-                                </select>
-                            </div>
-                            <div className="filter-group">
-                                <label>Manufacturer</label>
-                                <select value={filterManufacturer} onChange={e => setFilterManufacturer(e.target.value)}>
-                                    <option value="all">All Manufacturers</option>
-                                    {manufacturers.map(m => <option key={m} value={m}>{m}</option>)}
-                                </select>
-                            </div>
-                        </div>
-                    </div>
+                <div className="motor-finder-content">
+                    <aside className="motor-finder-filters">
+                        <div className="finder-filter-title">Filters <button onClick={() => {
+                            setFilterClass('all'); setFilterCertification('all'); setFilterDiameter(0); setFilterManufacturer('all'); setStockOnly(false);
+                        }}>Reset</button></div>
+                        <FilterGroup title="CERTIFICATION LEVEL">
+                            {certificationLevels.map(level => (
+                                <button key={level} className={filterCertification === level ? 'selected' : ''} onClick={() => setFilterCertification(filterCertification === level ? 'all' : level)}>
+                                    {level}<small> · {motors.filter(m => certificationFor(m) === level).length}</small>
+                                </button>
+                            ))}
+                        </FilterGroup>
+                        <FilterGroup title="IMPULSE CLASS">
+                            <div className="class-grid">{impulseClasses.map(value => <button key={value} className={filterClass === value ? 'selected' : ''} onClick={() => setFilterClass(filterClass === value ? 'all' : value)}>{value}</button>)}</div>
+                        </FilterGroup>
+                        <FilterGroup title="DIAMETER (MM)">
+                            <div className="class-grid diameter-grid">{diameters.map(value => <button key={value} className={filterDiameter === value ? 'selected' : ''} onClick={() => setFilterDiameter(filterDiameter === value ? 0 : value)}>{value}</button>)}</div>
+                        </FilterGroup>
+                        <FilterGroup title="MANUFACTURER">
+                            {manufacturers.map(value => <label className="checkbox-filter" key={value}><input type="checkbox" checked={filterManufacturer === value} onChange={() => setFilterManufacturer(filterManufacturer === value ? 'all' : value)} /> {value}<small>{motors.filter(m => m.manufacturer === value).length}</small></label>)}
+                        </FilterGroup>
+                        {motorSyncStatus !== 'syncing' && <button className="sync-catalog" onClick={() => syncMotorsFromAPI()}>↻ Sync live catalog</button>}
+                        {motorSyncError && <p className="sync-error">{motorSyncError}</p>}
+                    </aside>
 
-                    <div className="motor-selector-body">
-                        {/* Motor list */}
-                        <div className="motor-list">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Designation</th>
-                                        <th>Manufacturer</th>
-                                        <th>Ø ({unitLabel('motor_mm', us)})</th>
-                                        <th>Length</th>
-                                        <th>Total Impulse</th>
-                                        <th>Avg Thrust</th>
-                                        <th>Max Thrust</th>
-                                        <th>Burn</th>
-                                        <th>Mass</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredMotors.map(motor => (
-                                        <tr
-                                            key={motor.designation}
-                                            className={`motor-row ${selectedPreview?.designation === motor.designation ? 'selected' : ''}`}
-                                            onClick={() => setSelectedPreview(motor)}
-                                            onDoubleClick={() => { setSelectedMotor(motor); setShowMotorSelector(false); }}
-                                        >
-                                            <td className="motor-designation">{motor.designation}</td>
-                                            <td>{motor.manufacturer}</td>
-                                            <td>{fmt(motor.diameter, 'motor_mm', us)}</td>
-                                            <td>{fmt(motor.length, 'motor_mm', us)}{unitLabel('motor_mm', us)}</td>
-                                            <td>{fmtU(motor.totalImpulse, 'Ns', us)}</td>
-                                            <td>{fmtU(motor.averageThrust, 'N', us)}</td>
-                                            <td>{fmtU(motor.maxThrust, 'N', us)}</td>
-                                            <td>{motor.burnTime.toFixed(2)}s</td>
-                                            <td>{fmtU(motor.totalMass, 'g', us)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                            {filteredMotors.length === 0 && (
-                                <p className="no-motors">No motors match the current filters.</p>
-                            )}
-                        </div>
-
-                        {/* Motor preview */}
-                        {selectedPreview && (
-                            <div className="motor-preview">
-                                <h3>{selectedPreview.designation}</h3>
-                                <p className="motor-mfg">{selectedPreview.manufacturer}</p>
-
-                                <div className="motor-specs">
-                                    <div className="spec">
-                                        <span className="spec-label">Class</span>
-                                        <span className="spec-value">{selectedPreview.impulseClass}</span>
-                                    </div>
-                                    <div className="spec">
-                                        <span className="spec-label">Diameter</span>
-                                        <span className="spec-value">{fmt(selectedPreview.diameter, 'motor_mm', us)} {unitLabel('motor_mm', us)}</span>
-                                    </div>
-                                    <div className="spec">
-                                        <span className="spec-label">Length</span>
-                                        <span className="spec-value">{fmt(selectedPreview.length, 'motor_mm', us)} {unitLabel('motor_mm', us)}</span>
-                                    </div>
-                                    <div className="spec">
-                                        <span className="spec-label">Total Impulse</span>
-                                        <span className="spec-value">{fmtU(selectedPreview.totalImpulse, 'Ns', us)}</span>
-                                    </div>
-                                    <div className="spec">
-                                        <span className="spec-label">Average Thrust</span>
-                                        <span className="spec-value">{fmtU(selectedPreview.averageThrust, 'N', us)}</span>
-                                    </div>
-                                    <div className="spec">
-                                        <span className="spec-label">Max Thrust</span>
-                                        <span className="spec-value">{fmtU(selectedPreview.maxThrust, 'N', us)}</span>
-                                    </div>
-                                    <div className="spec">
-                                        <span className="spec-label">Burn Time</span>
-                                        <span className="spec-value">{selectedPreview.burnTime.toFixed(2)} s</span>
-                                    </div>
-                                    <div className="spec">
-                                        <span className="spec-label">Propellant Mass</span>
-                                        <span className="spec-value">{fmtU(selectedPreview.propellantMass, 'g', us)}</span>
-                                    </div>
-                                    <div className="spec">
-                                        <span className="spec-label">Total Mass</span>
-                                        <span className="spec-value">{fmtU(selectedPreview.totalMass, 'g', us)}</span>
-                                    </div>
-                                    <div className="spec">
-                                        <span className="spec-label">Delays</span>
-                                        <span className="spec-value">{selectedPreview.delays}s</span>
-                                    </div>
-                                </div>
-
-                                {/* Thrust curve */}
-                                <div className="thrust-curve">
-                                    <h4>Thrust Curve</h4>
-                                    {loadingCurve ? (
-                                        <div style={{ textAlign: 'center', padding: '40px 0', color: '#5c6370' }}>
-                                            ⏳ Downloading thrust curve…
-                                        </div>
-                                    ) : thrustData.length === 0 ? (
-                                        <div style={{ textAlign: 'center', padding: '40px 0', color: '#5c6370' }}>
-                                            No thrust curve data available yet.
-                                        </div>
-                                    ) : (
-                                        <ResponsiveContainer width="100%" height={200}>
-                                            <LineChart data={thrustData}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                                                <XAxis dataKey="time" label={{ value: 'Time (s)', position: 'insideBottomRight', offset: -5 }} />
-                                                <YAxis label={{ value: `Thrust (${unitLabel('N', us)})`, angle: -90, position: 'insideLeft' }} />
-                                                <Tooltip formatter={(v: number) => [`${v.toFixed(2)} ${unitLabel('N', us)}`, 'Thrust']}
-                                                    labelFormatter={(l: number) => `t = ${l.toFixed(3)}s`} />
-                                                <Line type="monotone" dataKey="thrust" stroke="#ff5722" dot={false} strokeWidth={2} />
-                                            </LineChart>
-                                        </ResponsiveContainer>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                    <main className="motor-finder-results">
+                        {filteredMotors.map(motor => {
+                            const stock = stockFor(motor);
+                            const isSelected = selectedPreview?.id === motor.id;
+                            return (
+                                <article key={motor.id} className={`motor-result-card ${isSelected ? 'selected' : ''}`} onClick={() => setSelectedPreview(motor)}>
+                                    <div className="motor-card-name"><b className="motor-icon">M</b><div><strong>{motor.designation}</strong><span>{motor.manufacturer} · {motor.diameter} mm · {motor.commonName}</span><em>{certificationFor(motor) === 'Level 3' ? 'L3' : certificationFor(motor).replace('Level ', 'L')}</em></div></div>
+                                    <Metric label="Impulse" value={`${motor.totalImpulse.toLocaleString()} N·s`} />
+                                    <Metric label="Avg thrust" value={`${motor.averageThrust.toLocaleString()} N`} />
+                                    <Metric label="Burn" value={`${motor.burnTime.toFixed(2)} s`} />
+                                    <Metric label="Propellant" value={motor.commonName} />
+                                    <Sparkline motor={motor} />
+                                    <div className="motor-card-stock"><span className={stock ? 'in-stock' : 'out-stock'}>● {stock ? 'Available in live catalog' : 'Marked out of production'}</span><strong>{motor.totalImpulse.toLocaleString()} N·s</strong><small>{motor.infoUrl ? 'Open manufacturer data' : 'ThrustCurve.org data'}</small></div>
+                                    <button className={`compare-button ${compare.has(motor.id) ? 'active' : ''}`} onClick={event => { event.stopPropagation(); toggleCompare(motor.id); }}>☆ Compare</button>
+                                </article>
+                            );
+                        })}
+                        {filteredMotors.length === 0 && <div className="empty-finder">No motors match these filters.</div>}
+                    </main>
                 </div>
-
-                <div className="modal-footer">
+                <footer className="motor-finder-footer">
+                    <span>{compare.size ? `${compare.size} motor${compare.size > 1 ? 's' : ''} selected for comparison` : 'Select a motor to preview its thrust curve'}</span>
+                    {selectionError && <span className="sync-error">{selectionError}</span>}
                     <button className="btn-cancel" onClick={() => setShowMotorSelector(false)}>Cancel</button>
-                    <button className="btn-select" onClick={handleSelect} disabled={!selectedPreview}>
-                        Select {selectedPreview?.designation || 'Motor'}
-                    </button>
-                </div>
-            </div>
+                    <button className="finder-primary" disabled={!selectedPreview} onClick={selectMotor}>Use selected motor</button>
+                </footer>
+            </section>
         </div>
     );
 };
+
+const FilterGroup: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+    <div className="finder-filter-group"><h3>{title}</h3>{children}</div>
+);
+
+const Metric: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+    <div className="motor-card-metric"><span>{label}</span><strong>{value}</strong></div>
+);

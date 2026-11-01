@@ -5,9 +5,10 @@ import * as THREE from 'three';
 import { useStore } from '../store/useStore';
 import { getComponentPositions, getMaxRadius, getRocketLength } from '../physics/aerodynamics';
 import { NoseCone, BodyTube, Transition, TrapezoidFinSet, EllipticalFinSet, FreeformFinSet } from '../types/rocket';
+import { getFlutteringFinIds } from '../physics/finFlutter';
 
 export const RocketView3D: React.FC = () => {
-    const { rocket } = useStore();
+    const { rocket, simulationResults } = useStore();
 
     return (
         <div className="rocket-view-3d">
@@ -18,7 +19,7 @@ export const RocketView3D: React.FC = () => {
                 <directionalLight position={[5, 5, 5]} intensity={1.0} castShadow />
                 <directionalLight position={[-3, 3, -3]} intensity={0.35} />
                 <pointLight position={[0.15, 0.1, 0.2]} intensity={0.3} />
-                <RocketModel rocket={rocket} />
+                <RocketModel rocket={rocket} simulationResults={simulationResults} />
                 <Grid
                     infiniteGrid
                     cellSize={0.01}
@@ -34,12 +35,13 @@ export const RocketView3D: React.FC = () => {
 };
 
 /* Build along +X axis directly — no confusing group rotation */
-const RocketModel: React.FC<{ rocket: any }> = ({ rocket }) => {
+const RocketModel: React.FC<{ rocket: any; simulationResults: any[] }> = ({ rocket, simulationResults }) => {
     const groupRef = useRef<THREE.Group>(null);
     const positions = useMemo(() => getComponentPositions(rocket), [rocket]);
     const totalLength = useMemo(() => getRocketLength(rocket), [rocket]);
 
     const offset = totalLength / 2;
+    const flutteringFinIds = getFlutteringFinIds(rocket, simulationResults);
 
     return (
         <group ref={groupRef} position={[-offset, 0, 0]}>
@@ -51,7 +53,7 @@ const RocketModel: React.FC<{ rocket: any }> = ({ rocket }) => {
                     return <NoseCone3D key={comp.id} comp={comp} xStart={xStart} />;
                 }
                 if (comp.type === 'bodytube') {
-                    return <BodyTube3D key={comp.id} comp={comp} xStart={xStart} />;
+                    return <BodyTube3D key={comp.id} comp={comp} xStart={xStart} flutteringFinIds={flutteringFinIds} />;
                 }
                 if (comp.type === 'transition') {
                     return <Transition3D key={comp.id} comp={comp} xStart={xStart} />;
@@ -117,7 +119,7 @@ const NoseCone3D: React.FC<{ comp: NoseCone; xStart: number }> = ({ comp, xStart
 };
 
 /* CylinderGeometry along Y, rotate -π/2 Z → along X */
-const BodyTube3D: React.FC<{ comp: BodyTube; xStart: number }> = ({ comp, xStart }) => {
+const BodyTube3D: React.FC<{ comp: BodyTube; xStart: number; flutteringFinIds: Set<string> }> = ({ comp, xStart, flutteringFinIds }) => {
     const color = comp.color || '#a8b8c8';
 
     return (
@@ -132,13 +134,13 @@ const BodyTube3D: React.FC<{ comp: BodyTube; xStart: number }> = ({ comp, xStart
                     ? (child as any).position : 0;
 
                 if (child.type === 'trapezoidfinset') {
-                    return <TrapFin3D key={child.id} comp={child} bodyLength={comp.length} bodyRadius={comp.outerRadius} posX={childPosX} />;
+                    return <TrapFin3D key={child.id} comp={child} bodyLength={comp.length} bodyRadius={comp.outerRadius} posX={childPosX} fluttering={flutteringFinIds.has(child.id)} />;
                 }
                 if (child.type === 'ellipticalfinset') {
-                    return <EllipFin3D key={child.id} comp={child} bodyLength={comp.length} bodyRadius={comp.outerRadius} posX={childPosX} />;
+                    return <EllipFin3D key={child.id} comp={child} bodyLength={comp.length} bodyRadius={comp.outerRadius} posX={childPosX} fluttering={flutteringFinIds.has(child.id)} />;
                 }
                 if (child.type === 'freeformfinset') {
-                    return <FreeformFin3D key={child.id} comp={child} bodyLength={comp.length} bodyRadius={comp.outerRadius} posX={childPosX} />;
+                    return <FreeformFin3D key={child.id} comp={child} bodyLength={comp.length} bodyRadius={comp.outerRadius} posX={childPosX} fluttering={flutteringFinIds.has(child.id)} />;
                 }
                 if (child.type === 'innertube') {
                     return (
@@ -199,7 +201,7 @@ const BodyTube3D: React.FC<{ comp: BodyTube; xStart: number }> = ({ comp, xStart
 
 /* Fin shape is in X-Y plane (X = chord, Y = span), extruded along Z = thickness.
    Rotate around X to distribute fins around the body. */
-const TrapFin3D: React.FC<{ comp: TrapezoidFinSet; bodyLength: number; bodyRadius: number; posX?: number }> = ({ comp, bodyLength, bodyRadius, posX }) => {
+const TrapFin3D: React.FC<{ comp: TrapezoidFinSet; bodyLength: number; bodyRadius: number; posX?: number; fluttering?: boolean }> = ({ comp, bodyLength, bodyRadius, posX, fluttering }) => {
     const geometry = useMemo(() => {
         const shape = new THREE.Shape();
         shape.moveTo(0, 0);
@@ -220,7 +222,7 @@ const TrapFin3D: React.FC<{ comp: TrapezoidFinSet; bodyLength: number; bodyRadiu
                 return (
                     <group key={i} rotation={[angle, 0, 0]}>
                         <mesh geometry={geometry} position={[0, bodyRadius, -comp.thickness / 2]}>
-                            <meshStandardMaterial color={comp.color || '#c8843c'} roughness={0.35} metalness={0.1} side={THREE.DoubleSide} />
+                            <meshStandardMaterial color={fluttering ? '#ff3333' : (comp.color || '#c8843c')} emissive={fluttering ? '#ff1111' : '#000000'} emissiveIntensity={fluttering ? 0.7 : 0} roughness={0.35} metalness={0.1} side={THREE.DoubleSide} />
                         </mesh>
                     </group>
                 );
@@ -229,7 +231,7 @@ const TrapFin3D: React.FC<{ comp: TrapezoidFinSet; bodyLength: number; bodyRadiu
     );
 };
 
-const EllipFin3D: React.FC<{ comp: EllipticalFinSet; bodyLength: number; bodyRadius: number; posX?: number }> = ({ comp, bodyLength, bodyRadius, posX }) => {
+const EllipFin3D: React.FC<{ comp: EllipticalFinSet; bodyLength: number; bodyRadius: number; posX?: number; fluttering?: boolean }> = ({ comp, bodyLength, bodyRadius, posX, fluttering }) => {
     const geometry = useMemo(() => {
         const shape = new THREE.Shape();
         const segments = 32;
@@ -256,7 +258,7 @@ const EllipFin3D: React.FC<{ comp: EllipticalFinSet; bodyLength: number; bodyRad
                 return (
                     <group key={i} rotation={[angle, 0, 0]}>
                         <mesh geometry={geometry} position={[0, bodyRadius, -comp.thickness / 2]}>
-                            <meshStandardMaterial color={comp.color || '#c8843c'} roughness={0.35} metalness={0.1} side={THREE.DoubleSide} />
+                            <meshStandardMaterial color={fluttering ? '#ff3333' : (comp.color || '#c8843c')} emissive={fluttering ? '#ff1111' : '#000000'} emissiveIntensity={fluttering ? 0.7 : 0} roughness={0.35} metalness={0.1} side={THREE.DoubleSide} />
                         </mesh>
                     </group>
                 );
@@ -265,7 +267,7 @@ const EllipFin3D: React.FC<{ comp: EllipticalFinSet; bodyLength: number; bodyRad
     );
 };
 
-const FreeformFin3D: React.FC<{ comp: FreeformFinSet; bodyLength: number; bodyRadius: number; posX?: number }> = ({ comp, bodyLength, bodyRadius, posX }) => {
+const FreeformFin3D: React.FC<{ comp: FreeformFinSet; bodyLength: number; bodyRadius: number; posX?: number; fluttering?: boolean }> = ({ comp, bodyLength, bodyRadius, posX, fluttering }) => {
     const geometry = useMemo(() => {
         if (comp.points.length < 3) return null;
         const shape = new THREE.Shape();
@@ -287,7 +289,7 @@ const FreeformFin3D: React.FC<{ comp: FreeformFinSet; bodyLength: number; bodyRa
                 return (
                     <group key={i} rotation={[angle, 0, 0]}>
                         <mesh geometry={geometry} position={[0, bodyRadius, -comp.thickness / 2]}>
-                            <meshStandardMaterial color={comp.color || '#c8843c'} roughness={0.35} metalness={0.1} side={THREE.DoubleSide} />
+                            <meshStandardMaterial color={fluttering ? '#ff3333' : (comp.color || '#c8843c')} emissive={fluttering ? '#ff1111' : '#000000'} emissiveIntensity={fluttering ? 0.7 : 0} roughness={0.35} metalness={0.1} side={THREE.DoubleSide} />
                         </mesh>
                     </group>
                 );

@@ -3,6 +3,7 @@ import { useStore } from '../store/useStore';
 import { getComponentPositions, getMaxRadius, getRocketLength } from '../physics/aerodynamics';
 import { NoseCone, BodyTube, Transition, TrapezoidFinSet, EllipticalFinSet, FreeformFinSet, Airbrakes, Motor, RocketComponent } from '../types/rocket';
 import { toDisplay, unitLabel, fmtU, UnitSystem } from '../utils/units';
+import { getFlutteringFinIds } from '../physics/finFlutter';
 
 /* =====================================================================
    2SPACE Rocket Studio – 2D Engineering Blueprint View
@@ -50,7 +51,8 @@ interface ViewTransform {
 }
 
 export const RocketView2D: React.FC = () => {
-    const { rocket, viewOrientation, zoom, stability, selectedComponentId, selectComponent, selectedMotor, motorPosition } = useStore();
+    const { rocket, viewOrientation, zoom, stability, selectedComponentId, selectComponent, selectedMotor, motorPosition, simulationResults } = useStore();
+    const flutteringFinIds = useMemo(() => getFlutteringFinIds(rocket, simulationResults), [rocket, simulationResults]);
     const us = useStore(s => s.unitSystem);
     const positions = useMemo(() => getComponentPositions(rocket), [rocket]);
     const totalLength = useMemo(() => getRocketLength(rocket), [rocket]);
@@ -73,10 +75,10 @@ export const RocketView2D: React.FC = () => {
         return <SideViewCanvas positions={positions} rocket={rocket} totalLength={totalLength}
             maxRadius={maxRadius} baseZoom={zoom} stability={stability}
             selectedId={selectedComponentId} onSelect={selectComponent}
-            motor={selectedMotor} motorPosition={motorPosition} us={us} />;
+            motor={selectedMotor} motorPosition={motorPosition} us={us} flutteringFinIds={flutteringFinIds} />;
     }
     const scale = zoom * 600;
-    return <BackView positions={positions} rocket={rocket} maxRadius={maxRadius} scale={scale} />;
+    return <BackView positions={positions} rocket={rocket} maxRadius={maxRadius} scale={scale} flutteringFinIds={flutteringFinIds} />;
 };
 
 /* ---------- helper: max fin height ---------- */
@@ -101,8 +103,8 @@ function getCompMass(c: RocketComponent): number | undefined {
 const SideViewCanvas: React.FC<{
     positions: any[]; rocket: any; totalLength: number; maxRadius: number;
     baseZoom: number; stability: any; selectedId: string | null; onSelect: (id: string) => void;
-    motor: Motor | null; motorPosition: number; us: UnitSystem;
-}> = ({ positions, rocket, totalLength, maxRadius, baseZoom, stability, selectedId, onSelect, motor, motorPosition, us }) => {
+    motor: Motor | null; motorPosition: number; us: UnitSystem; flutteringFinIds: Set<string>;
+}> = ({ positions, rocket, totalLength, maxRadius, baseZoom, stability, selectedId, onSelect, motor, motorPosition, us, flutteringFinIds }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [size, setSize] = useState({ w: 800, h: 500 });
     const [transform, setTransform] = useState<ViewTransform | null>(null);
@@ -215,6 +217,12 @@ const SideViewCanvas: React.FC<{
                             values="0 0 0 0 0.29  0 0 0 0 0.62  0 0 0 0 0.96  0 0 0 0.45 0" />
                         <feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge>
                     </filter>
+                    <filter id="flutter-glow" x="-30%" y="-30%" width="160%" height="160%">
+                        <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
+                        <feColorMatrix in="blur" type="matrix"
+                            values="0 0 0 0 1  0 0 0 0 0.05  0 0 0 0 0.05  0 0 0 0.8 0" />
+                        <feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge>
+                    </filter>
                 </defs>
 
                 {/* Infinite mm grid */}
@@ -231,10 +239,10 @@ const SideViewCanvas: React.FC<{
                     const sel = comp.id === selectedId;
                     if (comp.type === 'nosecone')
                         return <NoseCone2D key={comp.id} comp={comp} x={x} centerY={oy} scale={s}
-                            sel={sel} onClick={() => onSelect(comp.id)} selectedId={selectedId} onSelect={onSelect} />;
+                            sel={sel} onClick={() => onSelect(comp.id)} selectedId={selectedId} onSelect={onSelect} flutteringFinIds={flutteringFinIds} />;
                     if (comp.type === 'bodytube')
                         return <BodyTube2D key={comp.id} comp={comp} x={x} centerY={oy} scale={s}
-                            sel={sel} onClick={() => onSelect(comp.id)} selectedId={selectedId} onSelect={onSelect} />;
+                            sel={sel} onClick={() => onSelect(comp.id)} selectedId={selectedId} onSelect={onSelect} flutteringFinIds={flutteringFinIds} />;
                     if (comp.type === 'transition')
                         return <Transition2D key={comp.id} comp={comp} x={x} centerY={oy} scale={s}
                             sel={sel} onClick={() => onSelect(comp.id)} />;
@@ -325,7 +333,8 @@ const InfiniteGrid: React.FC<{
 const NoseCone2D: React.FC<{
     comp: NoseCone; x: number; centerY: number; scale: number; sel: boolean; onClick: () => void;
     selectedId?: string | null; onSelect?: (id: string) => void;
-}> = ({ comp, x, centerY, scale, sel, onClick, selectedId, onSelect }) => {
+    flutteringFinIds: Set<string>;
+}> = ({ comp, x, centerY, scale, sel, onClick, selectedId, onSelect, flutteringFinIds }) => {
     const l = comp.length * scale, r = comp.baseRadius * scale;
     const stroke = sel ? T.sel : T.body;
     const sw = sel ? 1.6 : 0.9;
@@ -342,8 +351,8 @@ const NoseCone2D: React.FC<{
                     fill="none" stroke={stroke} strokeWidth={sw * 0.5} strokeDasharray="3,2" opacity={0.4} />
             )}
             {sel && <CLabel x={x + l / 2} y={centerY - r - 18} name={comp.name} color={stroke} />}
-            {comp.children && selectedId != null && onSelect && comp.children.map(child =>
-                renderChild(child, x, l, r, centerY, scale, selectedId, onSelect)
+            {comp.children && onSelect && comp.children.map(child =>
+                renderChild(child, x, l, r, centerY, scale, selectedId ?? null, onSelect, flutteringFinIds)
             )}
         </g>
     );
@@ -373,7 +382,8 @@ function noseProfile(comp: NoseCone, l: number, r: number): [number, number][] {
 const BodyTube2D: React.FC<{
     comp: BodyTube; x: number; centerY: number; scale: number; sel: boolean; onClick: () => void;
     selectedId: string | null; onSelect: (id: string) => void;
-}> = ({ comp, x, centerY, scale, sel, onClick, selectedId, onSelect }) => {
+    flutteringFinIds: Set<string>;
+}> = ({ comp, x, centerY, scale, sel, onClick, selectedId, onSelect, flutteringFinIds }) => {
     const l = comp.length * scale, r = comp.outerRadius * scale, ir = comp.innerRadius * scale;
     const stroke = sel ? T.sel : T.body;
     const sw = sel ? 1.6 : 0.9;
@@ -386,7 +396,7 @@ const BodyTube2D: React.FC<{
                 <rect x={x} y={centerY - ir} width={l} height={ir * 2}
                     fill="none" stroke={T.dimLine} strokeWidth={0.35} strokeDasharray="3,3" pointerEvents="none" />
             )}
-            {comp.children?.map(child => renderChild(child, x, l, r, centerY, scale, selectedId, onSelect))}
+            {comp.children?.map(child => renderChild(child, x, l, r, centerY, scale, selectedId, onSelect, flutteringFinIds))}
         </g>
     );
 };
@@ -394,7 +404,8 @@ const BodyTube2D: React.FC<{
 /* ---------- renderChild ---------- */
 function renderChild(
     child: RocketComponent, bodyX: number, bodyL: number, bodyR: number,
-    centerY: number, scale: number, selectedId: string | null, onSelect: (id: string) => void
+    centerY: number, scale: number, selectedId: string | null, onSelect: (id: string) => void,
+    flutteringFinIds: Set<string>
 ): React.ReactElement | null {
     const cSel = child.id === selectedId;
     const cStroke = cSel ? T.sel : (COMP_COLORS[child.type] || T.body);
@@ -406,13 +417,13 @@ function renderChild(
     switch (child.type) {
         case 'trapezoidfinset': return <TrapFin2D key={child.id} comp={child as TrapezoidFinSet}
             bodyX={bodyX} bodyLength={bodyL} bodyRadius={bodyR} centerY={centerY} scale={scale}
-            stroke={cStroke} strokeWidth={cSW} onClick={clk} childPos={childPos} sel={cSel} />;
+            stroke={flutteringFinIds.has(child.id) ? '#ff4d4d' : cStroke} strokeWidth={cSW} onClick={clk} childPos={childPos} sel={cSel} fluttering={flutteringFinIds.has(child.id)} />;
         case 'ellipticalfinset': return <EllipFin2D key={child.id} comp={child as EllipticalFinSet}
             bodyX={bodyX} bodyLength={bodyL} bodyRadius={bodyR} centerY={centerY} scale={scale}
-            stroke={cStroke} strokeWidth={cSW} onClick={clk} childPos={childPos} />;
+            stroke={flutteringFinIds.has(child.id) ? '#ff4d4d' : cStroke} strokeWidth={cSW} onClick={clk} childPos={childPos} fluttering={flutteringFinIds.has(child.id)} />;
         case 'freeformfinset': return <FreeformFin2D key={child.id} comp={child as FreeformFinSet}
             bodyX={bodyX} bodyLength={bodyL} bodyRadius={bodyR} centerY={centerY} scale={scale}
-            stroke={cStroke} strokeWidth={cSW} onClick={clk} childPos={childPos} />;
+            stroke={flutteringFinIds.has(child.id) ? '#ff4d4d' : cStroke} strokeWidth={cSW} onClick={clk} childPos={childPos} fluttering={flutteringFinIds.has(child.id)} />;
         case 'innertube': {
             const it = child as any;
             const itR = it.outerRadius * scale, itL = it.length * scale;
@@ -587,14 +598,14 @@ const CLabel: React.FC<{ x: number; y: number; name: string; color: string; mass
 const TrapFin2D: React.FC<{
     comp: TrapezoidFinSet; bodyX: number; bodyLength: number; bodyRadius: number;
     centerY: number; scale: number; stroke: string; strokeWidth: number;
-    onClick: () => void; childPos?: number; sel?: boolean;
-}> = ({ comp, bodyX, bodyLength, bodyRadius, centerY, scale, stroke, strokeWidth, onClick, childPos, sel }) => {
+    onClick: () => void; childPos?: number; sel?: boolean; fluttering?: boolean;
+}> = ({ comp, bodyX, bodyLength, bodyRadius, centerY, scale, stroke, strokeWidth, onClick, childPos, sel, fluttering }) => {
     const finX = childPos !== undefined ? bodyX + childPos : bodyX + bodyLength - comp.rootChord * scale;
     const rc = comp.rootChord * scale, tc = comp.tipChord * scale;
     const h = comp.height * scale, sw = comp.sweepLength * scale;
     const fill = sel ? 'rgba(74,158,245,0.06)' : 'none';
     return (
-        <g onClick={onClick} style={{ cursor: 'pointer' }} filter={sel ? 'url(#sel-glow)' : undefined}>
+        <g onClick={onClick} style={{ cursor: 'pointer' }} filter={sel ? 'url(#sel-glow)' : fluttering ? 'url(#flutter-glow)' : undefined}>
             <polygon points={`${finX},${centerY - bodyRadius} ${finX + sw},${centerY - bodyRadius - h} ${finX + sw + tc},${centerY - bodyRadius - h} ${finX + rc},${centerY - bodyRadius}`}
                 fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round" />
             <polygon points={`${finX},${centerY + bodyRadius} ${finX + sw},${centerY + bodyRadius + h} ${finX + sw + tc},${centerY + bodyRadius + h} ${finX + rc},${centerY + bodyRadius}`}
@@ -609,12 +620,12 @@ const TrapFin2D: React.FC<{
 const EllipFin2D: React.FC<{
     comp: EllipticalFinSet; bodyX: number; bodyLength: number; bodyRadius: number;
     centerY: number; scale: number; stroke: string; strokeWidth: number;
-    onClick: () => void; childPos?: number;
-}> = ({ comp, bodyX, bodyLength, bodyRadius, centerY, scale, stroke, strokeWidth, onClick, childPos }) => {
+    onClick: () => void; childPos?: number; fluttering?: boolean;
+}> = ({ comp, bodyX, bodyLength, bodyRadius, centerY, scale, stroke, strokeWidth, onClick, childPos, fluttering }) => {
     const finX = childPos !== undefined ? bodyX + childPos : bodyX + bodyLength - comp.rootChord * scale;
     const rc = comp.rootChord * scale, h = comp.height * scale, cx = finX + rc / 2;
     return (
-        <g onClick={onClick} style={{ cursor: 'pointer' }}>
+        <g onClick={onClick} style={{ cursor: 'pointer' }} filter={fluttering ? 'url(#flutter-glow)' : undefined}>
             <ellipse cx={cx} cy={centerY - bodyRadius - h / 2} rx={rc / 2} ry={h / 2}
                 fill="none" stroke={stroke} strokeWidth={strokeWidth} />
             <ellipse cx={cx} cy={centerY + bodyRadius + h / 2} rx={rc / 2} ry={h / 2}
@@ -627,14 +638,15 @@ const EllipFin2D: React.FC<{
 const FreeformFin2D: React.FC<{
     comp: FreeformFinSet; bodyX: number; bodyLength: number; bodyRadius: number;
     centerY: number; scale: number; stroke: string; strokeWidth: number;
-    onClick: () => void; childPos?: number;
-}> = ({ comp, bodyX, bodyLength, bodyRadius, centerY, scale, stroke, strokeWidth, onClick, childPos }) => {
-    const base = childPos !== undefined ? bodyX + childPos : bodyX + bodyLength * 0.6;
+    onClick: () => void; childPos?: number; fluttering?: boolean;
+}> = ({ comp, bodyX, bodyLength, bodyRadius, centerY, scale, stroke, strokeWidth, onClick, childPos, fluttering }) => {
+    const maxX = comp.points.reduce((max, [px]) => Math.max(max, px), 0);
+    const base = childPos !== undefined ? bodyX + childPos : bodyX + bodyLength - maxX;
     if (comp.points.length < 3) return null;
     const top = comp.points.map(([px, py]) => `${base + px * scale},${centerY - bodyRadius - py * scale}`).join(' ');
     const bot = comp.points.map(([px, py]) => `${base + px * scale},${centerY + bodyRadius + py * scale}`).join(' ');
     return (
-        <g onClick={onClick} style={{ cursor: 'pointer' }}>
+        <g onClick={onClick} style={{ cursor: 'pointer' }} filter={fluttering ? 'url(#flutter-glow)' : undefined}>
             <polygon points={top} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round" />
             <polygon points={bot} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round" />
         </g>
@@ -754,8 +766,8 @@ const LengthDimension: React.FC<{
 };
 
 /* ---------- BACK VIEW ---------- */
-const BackView: React.FC<{ positions: any[]; rocket: any; maxRadius: number; scale: number }> = (
-    { positions, rocket, maxRadius, scale }
+const BackView: React.FC<{ positions: any[]; rocket: any; maxRadius: number; scale: number; flutteringFinIds: Set<string> }> = (
+    { positions, rocket, maxRadius, scale, flutteringFinIds }
 ) => {
     const padding = 70;
     const viewSize = maxRadius * 2 * scale + padding * 2 + 200;
@@ -790,10 +802,10 @@ const BackView: React.FC<{ positions: any[]; rocket: any; maxRadius: number; sca
                         els.push(<line key={`${fin.id}-${i}`}
                             x1={cx + bodyR * Math.cos(a)} y1={cy + bodyR * Math.sin(a)}
                             x2={cx + (bodyR + h) * Math.cos(a)} y2={cy + (bodyR + h) * Math.sin(a)}
-                            stroke={T.fins} strokeWidth={fin.thickness * scale * 3 + 1.5}
+                            stroke={flutteringFinIds.has(fin.id) ? '#ff4d4d' : T.fins} strokeWidth={fin.thickness * scale * 3 + 1.5}
                             strokeLinecap="round" />);
                     }
-                    return <g key={fin.id}>{els}</g>;
+                    return <g key={fin.id} filter={flutteringFinIds.has(fin.id) ? 'url(#flutter-glow)' : undefined}>{els}</g>;
                 })}
                 {lastBody.component.type === 'bodytube' && lastBody.component.children?.map((child: any) =>
                     child.type === 'launchlug'

@@ -6,10 +6,11 @@
 
 import {
     Rocket, RocketComponent, NoseCone, BodyTube, Transition,
-    TrapezoidFinSet, EllipticalFinSet, Airbrakes, AeroForces, StabilityData, Stage, Motor, StabilityModelOptions
+    TrapezoidFinSet, EllipticalFinSet, FreeformFinSet, Airbrakes, AeroForces, StabilityData, Stage, Motor, StabilityModelOptions
 } from '../types/rocket';
 import { getAtmosphere, getReynoldsNumber, getMachNumber } from './atmosphere';
 import { SURFACE_ROUGHNESS } from '../models/materials';
+import { calculateNaca1307, calculateFinInBodyFactor } from './naca1307';
 
 // ===========================
 // Geometry Helpers
@@ -282,47 +283,40 @@ export function calculateMassAndCG(
     let momentSum = 0;
     let x = 0;
 
+    const collectComponentMass = (comp: RocketComponent, origin: number): { mass: number; moment: number } => {
+        const ownMass = getComponentMass(comp);
+        const ownMoment = ownMass * (origin + getComponentCG(comp));
+        const children = getComponentChildren(comp);
+        let subtreeMass = ownMass;
+        let subtreeMoment = ownMoment;
+
+        for (const child of children) {
+            const childOffset = getChildOffset(child);
+            const childResult = collectComponentMass(child, origin + childOffset);
+            subtreeMass += childResult.mass;
+            subtreeMoment += childResult.moment;
+        }
+
+        // OpenRocket's component-level mass override can represent the complete
+        // component subtree. Scale all rigid bodies together when requested so
+        // the inherited CG remains physically consistent.
+        if (comp.massOverridden && comp.subcomponentsMassOverridden && comp.mass !== undefined && subtreeMass > 0) {
+            const scale = comp.mass / subtreeMass;
+            subtreeMass = comp.mass;
+            subtreeMoment *= scale;
+        }
+        if (comp.cgOverridden && comp.subcomponentsCGOverridden && comp.cgOverride !== undefined && subtreeMass > 0) {
+            subtreeMoment = subtreeMass * (origin + comp.cgOverride);
+        }
+        return { mass: subtreeMass, moment: subtreeMoment };
+    };
+
     for (const stage of rocket.stages) {
         for (const comp of stage.components) {
             const compLen = getCompLength(comp);
-            const mass = getComponentMass(comp);
-            const localCG = getComponentCG(comp);
-
-            totalMass += mass;
-            momentSum += mass * (x + localCG);
-
-            // Process children (body tube and nose cone)
-            const childList = (comp.type === 'bodytube' && comp.children)
-                ? comp.children
-                : (comp.type === 'nosecone' && (comp as any).children)
-                    ? (comp as any).children
-                    : null;
-            if (childList) {
-                for (const child of childList) {
-                    const childMass = getComponentMass(child);
-                    const childLocalCG = getComponentCG(child);
-
-                    // Position is from front of parent
-                    const childOffset = ('position' in child && typeof (child as any).position === 'number')
-                        ? (child as any).position : 0;
-                    const childPos = x + childOffset;
-
-                    totalMass += childMass;
-                    momentSum += childMass * (childPos + childLocalCG);
-
-                    // Process inner tube children
-                    if (child.type === 'innertube' && child.children) {
-                        const itLen = child.length;
-                        for (const grandchild of child.children) {
-                            const gcMass = getComponentMass(grandchild);
-                            const gcOffset = ('position' in grandchild && typeof (grandchild as any).position === 'number')
-                                ? (grandchild as any).position : 0;
-                            totalMass += gcMass;
-                            momentSum += gcMass * (childPos + gcOffset + getComponentCG(grandchild));
-                        }
-                    }
-                }
-            }
+            const componentMass = collectComponentMass(comp, x);
+            totalMass += componentMass.mass;
+            momentSum += componentMass.moment;
 
             x += compLen;
         }
@@ -344,6 +338,24 @@ export function calculateMassAndCG(
         totalMass,
         cg: totalMass > 0 ? momentSum / totalMass : 0,
     };
+}
+
+function getComponentChildren(comp: RocketComponent): RocketComponent[] {
+    switch (comp.type) {
+        case 'bodytube':
+        case 'innertube':
+        case 'nosecone':
+            return comp.children ?? [];
+        default:
+            return [];
+    }
+}
+
+function getChildOffset(comp: RocketComponent): number {
+    if ('position' in comp && typeof comp.position === 'number') {
+        return comp.position;
+    }
+    return 0;
 }
 
 // ===========================
@@ -402,11 +414,12 @@ function transitionCP(
         return { cnAlpha: 0, cp: xPos + l / 2 };
     }
 
-    // Use a numerically stable equivalent of the Barrowman frustum CP expression.
-    // x_cp(local) = (L/3) * (r1 + 2*r2) / (r1 + r2)
-    const radiusSum = r1 + r2;
-    const cpLocal = radiusSum > 0
-        ? (l / 3) * ((r1 + 2 * r2) / radiusSum)
+    // OpenRocket's SymmetricComponentCalc uses the Barrowman frustum result:
+    // x_cp = (L*A_aft - V) / (A_aft - A_fore).
+    // This is the aerodynamic center, not the volume centroid.
+    const volume = (Math.PI * l / 3) * (r1 * r1 + r1 * r2 + r2 * r2);
+    const cpLocal = Math.abs(A2 - A1) > 1e-12
+        ? (l * A2 - volume) / (A2 - A1)
         : l / 2;
     const cp = xPos + cpLocal;
 
@@ -417,7 +430,8 @@ function trapezoidFinCP(
     fin: TrapezoidFinSet,
     xPos: number,
     bodyRadius: number,
-    refArea: number
+    refArea: number,
+    mach: number
 ): { cnAlpha: number; cp: number } {
     const { finCount, rootChord, tipChord, height, sweepLength } = fin;
     if (refArea <= 0 || finCount <= 0 || height <= 0 || rootChord < 0 || tipChord < 0 || (rootChord + tipChord) <= 0) {
@@ -436,18 +450,25 @@ function trapezoidFinCP(
     // Barrowman: total = 4N(s/d)²/den = Nπs²/(Aref·den) (includes interference)
     // Decomposed: per-fin isolated = πs²/(Aref·den), then × KfB for body interference
     // Note: using π (not 2π) since KfB already accounts for body mirror effect
-    const cnAlpha1 = Math.PI * s * s /
-        (refArea * (1 + Math.sqrt(1 + (2 * lm / (Cr + Ct)) ** 2)));
+    const area = 0.5 * (Cr + Ct) * s;
+    const cosGamma = Math.max(s / lm, 1e-6);
+    const aspectRatio = s * s / (area * cosGamma);
+    const cnAlpha1 = finCNa(area, s, cosGamma, aspectRatio, refArea, mach);
 
     // Fin-body interference factor (Barrowman) — uses LOCAL body radius
-    const KfB = 1 + r / (s + r);
+    const naca = calculateNaca1307(mach, r, s, Cr, Ct, Xs, Cr);
+    const KfB = naca?.finLiftFactor ?? calculateFinInBodyFactor(r / (s + r));
 
     // Total CNα for all fins
-    const cnAlpha = cnAlpha1 * KfB * finCount;
+    const cnAlpha = cnAlpha1 * finInterference(finCount) * KfB * finCount;
 
     // CP position of fin set
-    const xf = Xs * (Cr + 2 * Ct) / (3 * (Cr + Ct)) +
-        (1 / 6) * (Cr + Ct - Cr * Ct / (Cr + Ct));
+    const mac = Cr - 2 * (Cr - Ct) * (0.5 * Cr + Ct) / (3 * (Cr + Ct));
+    const macLead = Xs + (Cr - mac) / 2;
+    const cpFraction = mach >= 2
+        ? supersonicCpFraction((s * s / area) * Math.sqrt(Math.max(mach * mach - 1, 0)))
+        : 0.25;
+    const xf = macLead + cpFraction * mac;
 
     return {
         cnAlpha,
@@ -459,7 +480,8 @@ function ellipticalFinCP(
     fin: EllipticalFinSet,
     xPos: number,
     bodyRadius: number,
-    refArea: number
+    refArea: number,
+    mach: number
 ): { cnAlpha: number; cp: number } {
     if (refArea <= 0 || fin.finCount <= 0 || fin.height <= 0 || fin.rootChord <= 0) {
         return { cnAlpha: 0, cp: xPos };
@@ -473,17 +495,103 @@ function ellipticalFinCP(
 
     // CNα for a SINGLE fin, referenced to vehicle reference area
     // Using π (not 2π) since KfB already accounts for body mirror effect
-    const cnAlpha1 = Math.PI * s * s /
-        (refArea * (1 + Math.sqrt(1 + (2 * lm / Cr) ** 2)));
+    const area = Math.PI * Cr * s / 4;
+    const cosGamma = Math.max(s / lm, 1e-6);
+    const aspectRatio = s * s / (area * cosGamma);
+    const cnAlpha1 = finCNa(area, s, cosGamma, aspectRatio, refArea, mach);
 
-    const KfB = 1 + r / (s + r);
-    const cnAlpha = cnAlpha1 * KfB * fin.finCount;
+    const naca = calculateNaca1307(mach, r, s, Cr, 0, 0, Cr);
+    const KfB = naca?.finLiftFactor ?? calculateFinInBodyFactor(r / (s + r));
+    const cnAlpha = cnAlpha1 * finInterference(fin.finCount) * KfB * fin.finCount;
 
     // CP of elliptical fin at about 0.288 * root chord from leading edge
     return {
         cnAlpha,
-        cp: xPos + 0.288 * Cr,
+        cp: xPos + 0.25 * Cr,
     };
+}
+
+function freeformFinCP(
+    fin: FreeformFinSet,
+    xPos: number,
+    bodyRadius: number,
+    refArea: number,
+    mach: number,
+): { cnAlpha: number; cp: number } {
+    if (fin.finCount <= 0 || fin.points.length < 3 || refArea <= 0) {
+        return { cnAlpha: 0, cp: xPos };
+    }
+    let twiceArea = 0;
+    let centroidNumerator = 0;
+    let maxSpan = 0;
+    for (let i = 0; i < fin.points.length; i++) {
+        const [x0, y0] = fin.points[i];
+        const [x1, y1] = fin.points[(i + 1) % fin.points.length];
+        const cross = x0 * y1 - x1 * y0;
+        twiceArea += cross;
+        centroidNumerator += (x0 + x1) * cross;
+        maxSpan = Math.max(maxSpan, y0, y1);
+    }
+    const area = Math.abs(twiceArea) / 2;
+    if (area <= 1e-12 || maxSpan <= 1e-12) return { cnAlpha: 0, cp: xPos };
+    const centroidX = centroidNumerator / (3 * twiceArea);
+    const aspectRatio = maxSpan * maxSpan / Math.max(area, 1e-12);
+    const cnAlphaSingle = finCNa(area, maxSpan, 1, aspectRatio, refArea, mach);
+    const interference = finInterference(fin.finCount) *
+        calculateFinInBodyFactor(bodyRadius / (bodyRadius + maxSpan));
+    return {
+        cnAlpha: cnAlphaSingle * interference * fin.finCount,
+        cp: xPos + centroidX,
+    };
+}
+
+function finInterference(finCount: number): number {
+    if (finCount <= 4) return 1;
+    if (finCount === 5) return 0.948;
+    if (finCount === 6) return 0.913;
+    if (finCount === 7) return 0.854;
+    if (finCount === 8) return 0.81;
+    return 0.75;
+}
+
+/**
+ * NACA 1307 Eq. 14: lift on a fin mounted to a cylindrical body divided
+ * by isolated-fin lift. The chart-based body-load correction is applied
+ * separately when the full fin planform is available.
+ */
+function finCNa(
+    area: number,
+    span: number,
+    cosGamma: number,
+    aspectRatio: number,
+    refArea: number,
+    mach: number,
+): number {
+    if (area <= 0 || span <= 0 || cosGamma <= 0 || refArea <= 0) return 0;
+    // Barrowman's finite-fin expression uses the body-mounted fin
+    // denominator 2 + sqrt(4 + beta² AR²).
+    const subsonic = 2 * Math.PI * span * span /
+        (refArea * (2 + Math.sqrt(4 + (1 - 0.9 ** 2) * aspectRatio ** 2)));
+    const m = Math.max(mach, 1.5);
+    const beta = Math.sqrt(m * m - 1);
+    const supersonic = area * (2 / beta) / refArea;
+    if (mach <= 0.9) {
+        const betaSub = Math.sqrt(Math.max(1 - mach * mach, 0));
+        return 2 * Math.PI * span * span /
+            (refArea * (2 + Math.sqrt(4 + betaSub * betaSub * aspectRatio ** 2)));
+    }
+    if (mach >= 1.5) return supersonic;
+    const t = (mach - 0.9) / 0.6;
+    return subsonic * (1 - t) + supersonic * t;
+}
+
+function supersonicCpFraction(arBeta: number): number {
+    if (arBeta <= 0.84) return 0.25;
+    if (arBeta >= 1) return (arBeta - 0.67) / (2 * arBeta - 1);
+    const t = (arBeta - 0.84) / 0.16;
+    const end = (1 - 0.67) / (2 - 1);
+    return 0.25 * (2 * t ** 3 - 3 * t ** 2 + 1) +
+        end * (-2 * t ** 3 + 3 * t ** 2);
 }
 
 export function calculateStability(
@@ -501,20 +609,6 @@ export function calculateStability(
     const { totalMass, cg } = calculateMassAndCG(rocket, motor, motorPosition, propellantMassRemaining);
     const M = mach || 0;
 
-    // Compressibility correction factor for CNα
-    // Subsonic: Prandtl-Glauert: CNα_comp = CNα_inc / sqrt(1 - M²)
-    // Supersonic: linearized theory: CNα_comp = CNα_inc / sqrt(M² - 1) (capped)
-    let compFactor = 1.0;
-    if (M > 0.3 && M < 0.95) {
-        compFactor = 1.0 / Math.sqrt(1 - M * M);
-    } else if (M >= 0.95 && M <= 1.05) {
-        // Transonic: cap at M=0.95 value to avoid singularity
-        compFactor = 1.0 / Math.sqrt(1 - 0.95 * 0.95); // ≈ 3.2
-    } else if (M > 1.05) {
-        // Supersonic: Ackeret/linearized theory
-        compFactor = 1.0 / Math.sqrt(M * M - 1);
-    }
-
     let bodyCnAlpha = 0;
     let bodyCpMoment = 0;
     let finCnAlpha = 0;
@@ -526,14 +620,14 @@ export function calculateStability(
 
         if (comp.type === 'nosecone') {
             const { cnAlpha, cp } = noseConeCP(comp);
-            const cn = cnAlpha * compFactor;
+            const cn = cnAlpha;
             bodyCnAlpha += cn;
             bodyCpMoment += cn * cp;
         }
 
         if (comp.type === 'transition') {
             const { cnAlpha, cp } = transitionCP(comp, pos.xStart, refArea);
-            const cn = cnAlpha * compFactor;
+            const cn = cnAlpha;
             bodyCnAlpha += cn;
             bodyCpMoment += cn * cp;
         }
@@ -546,17 +640,23 @@ export function calculateStability(
                     ? (child as any).position : 0;
                 if (child.type === 'trapezoidfinset') {
                     const finPos = pos.xStart + childOffset;
-                    const { cnAlpha, cp } = trapezoidFinCP(child, finPos, bodyRadius, refArea);
-                    const cn = cnAlpha * compFactor;
+                    const { cnAlpha, cp } = trapezoidFinCP(child, finPos, bodyRadius, refArea, M);
+                    const cn = cnAlpha;
                     finCnAlpha += cn;
                     finCpMoment += cn * cp;
                 }
                 if (child.type === 'ellipticalfinset') {
                     const finPos = pos.xStart + childOffset;
-                    const { cnAlpha, cp } = ellipticalFinCP(child, finPos, bodyRadius, refArea);
-                    const cn = cnAlpha * compFactor;
+                    const { cnAlpha, cp } = ellipticalFinCP(child, finPos, bodyRadius, refArea, M);
+                    const cn = cnAlpha;
                     finCnAlpha += cn;
                     finCpMoment += cn * cp;
+                }
+                if (child.type === 'freeformfinset') {
+                    const finPos = pos.xStart + childOffset;
+                    const { cnAlpha, cp } = freeformFinCP(child, finPos, bodyRadius, refArea, M);
+                    finCnAlpha += cnAlpha;
+                    finCpMoment += cnAlpha * cp;
                 }
             }
         }
@@ -584,7 +684,10 @@ export function calculateStability(
         cpMoment = bodyMomentAdjusted + finMomentAdjusted;
     }
 
-    const cpPosition = totalCnAlpha > 0 ? cpMoment / totalCnAlpha : 0;
+    const rawCpPosition = totalCnAlpha > 0 ? cpMoment / totalCnAlpha : 0;
+    const cpPosition = Number.isFinite(rawCpPosition)
+        ? Math.max(0, Math.min(totalLength, rawCpPosition))
+        : 0;
     const caliber = maxR * 2;
     const stabilityMargin = caliber > 0 ? (cpPosition - cg) / caliber : 0;
 
@@ -691,6 +794,55 @@ function baseDragCoefficient(mach: number): number {
     }
 }
 
+    const NOSE_DRAG_TABLES: Record<string, { mach: number[]; cd: number[] }> = {
+        ellipsoid: {
+            mach: [1.2, 1.25, 1.3, 1.4, 1.6, 2, 2.4],
+            cd: [0.110, 0.128, 0.140, 0.148, 0.152, 0.159, 0.162],
+        },
+        haack: {
+            mach: [0.9, 0.95, 1, 1.05, 1.1, 1.2, 1.4, 1.6, 2, 3],
+            cd: [0, 0.010, 0.027, 0.055, 0.070, 0.081, 0.095, 0.097, 0.091, 0.083],
+        },
+        parabolic: {
+            mach: [0.95, 0.975, 1, 1.05, 1.1, 1.2, 1.4, 1.7],
+            cd: [0, 0.016, 0.041, 0.092, 0.109, 0.119, 0.113, 0.108],
+        },
+    };
+
+    function interpolateNoseTable(mach: number, table: { mach: number[]; cd: number[] }): number {
+        if (mach <= table.mach[0]) return table.cd[0];
+        for (let i = 1; i < table.mach.length; i++) {
+            if (mach <= table.mach[i]) {
+                const t = (mach - table.mach[i - 1]) / (table.mach[i] - table.mach[i - 1]);
+                return table.cd[i - 1] + t * (table.cd[i] - table.cd[i - 1]);
+            }
+        }
+        return table.cd[table.cd.length - 1];
+    }
+
+    function openRocketNosePressureDrag(nose: NoseCone, mach: number): number {
+        const fineness = nose.length / Math.max(2 * nose.baseRadius, 1e-9);
+        const table = NOSE_DRAG_TABLES[nose.shape];
+        if (table) {
+            const reference = Math.max(interpolateNoseTable(mach, table), 1e-9);
+            const scale = Math.log(fineness + 1) / Math.log(4);
+            return stagnationCD(Math.max(mach, 0)) * Math.pow(
+                reference / stagnationCD(Math.max(mach, 0)), scale,
+            );
+        }
+
+        const sinPhi = nose.baseRadius /
+            Math.sqrt(nose.baseRadius ** 2 + nose.length ** 2);
+        if (mach < 1) return 0.8 * sinPhi ** 2;
+        if (mach < 1.3) {
+            const t = (mach - 1) / 0.3;
+            const smooth = t * t * (3 - 2 * t);
+            const atOne = sinPhi;
+            const atOneThree = 2.1 * sinPhi ** 2 + 0.6019 * sinPhi;
+            return atOne + smooth * (atOneThree - atOne);
+        }
+        return 2.1 * sinPhi ** 2 + 0.5 * sinPhi / Math.sqrt(mach ** 2 - 1);
+    }
 export function calculateDrag(
     rocket: Rocket,
     velocity: number,
@@ -808,56 +960,7 @@ export function calculateDrag(
     for (const pos of positions) {
         if (pos.component.type === 'nosecone') {
             const nose = pos.component;
-            const fineRatio = nose.length / (nose.baseRadius * 2);
-
-            // Subsonic pressure drag at M=0 (base value, fineness~3 reference)
-            let cdNose: number;
-            switch (nose.shape) {
-                case 'conical':
-                    cdNose = 0.50 / (fineRatio * fineRatio);
-                    break;
-                case 'ogive':
-                    cdNose = 0.18 / (fineRatio * fineRatio);
-                    break;
-                case 'ellipsoid':
-                    cdNose = 0.10 / (fineRatio * fineRatio);
-                    break;
-                case 'haack': // Von Kármán / Sears-Haack
-                    cdNose = 0.08 / (fineRatio * fineRatio);
-                    break;
-                default:
-                    cdNose = 0.15 / (fineRatio * fineRatio);
-            }
-
-            // Transonic and supersonic: scale with Mach-dependent factor
-            // OpenRocket uses Prandtl-Glauert style for subsonic, wave drag for supersonic
-            if (mach > 0.8 && mach < 1.0) {
-                // Transonic drag rise
-                const t = (mach - 0.8) / 0.2;
-                const ramp = 3 * t * t - 2 * t * t * t;
-                let peakCd: number;
-                switch (nose.shape) {
-                    case 'conical': peakCd = 0.8 / (fineRatio * fineRatio); break;
-                    case 'ogive': peakCd = 0.5 / Math.pow(fineRatio, 1.5); break;
-                    case 'haack': peakCd = 0.3 / Math.pow(fineRatio, 1.5); break;
-                    case 'ellipsoid': peakCd = 0.6 / Math.pow(fineRatio, 1.5); break;
-                    default: peakCd = 0.5 / Math.pow(fineRatio, 1.5);
-                }
-                cdNose = cdNose + (peakCd - cdNose) * ramp;
-            } else if (mach >= 1.0) {
-                let peakCd: number;
-                switch (nose.shape) {
-                    case 'conical': peakCd = 0.8 / (fineRatio * fineRatio); break;
-                    case 'ogive': peakCd = 0.5 / Math.pow(fineRatio, 1.5); break;
-                    case 'haack': peakCd = 0.3 / Math.pow(fineRatio, 1.5); break;
-                    case 'ellipsoid': peakCd = 0.6 / Math.pow(fineRatio, 1.5); break;
-                    default: peakCd = 0.5 / Math.pow(fineRatio, 1.5);
-                }
-                const mEff = Math.max(mach, 1.05);
-                cdNose = peakCd / Math.sqrt(mEff * mEff - 1);
-            }
-
-            cdPressure += cdNose;
+            cdPressure += openRocketNosePressureDrag(nose, mach);
         }
     }
 

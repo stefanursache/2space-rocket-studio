@@ -15,9 +15,10 @@ import {
 } from './thrustcurveApi';
 
 const DB_NAME = 'openrocket-motors';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const MOTOR_STORE = 'motors';
 const META_STORE = 'meta';
+const CATALOG_VERSION = 3;
 
 /* ================================================================
    IndexedDB Helpers
@@ -125,6 +126,10 @@ function tcResultToMotor(r: TCSearchResult): CachedMotor {
         thrustCurve: [],                 // downloaded lazily
         hasThrustCurve: false,
         tcUpdatedOn: r.updatedOn,
+        availability: r.availability === 'regular' || r.availability === 'occasional' || r.availability === 'OOP'
+            ? r.availability
+            : 'unknown',
+        infoUrl: r.infoUrl,
     };
 }
 
@@ -139,6 +144,15 @@ export async function getLastSyncDate(): Promise<Date | null> {
         return entry ? new Date(entry.value as string) : null;
     } catch {
         return null;
+    }
+}
+
+export async function needsCatalogSync(): Promise<boolean> {
+    try {
+        const entry = await getItem<MetaEntry>(META_STORE, 'catalogVersion');
+        return entry?.value !== CATALOG_VERSION;
+    } catch {
+        return true;
     }
 }
 
@@ -199,6 +213,7 @@ export async function syncMotors(
     await clearStore(MOTOR_STORE);
     await putMany(MOTOR_STORE, motors);
     await putItem(META_STORE, { key: 'lastSync', value: new Date().toISOString() });
+    await putItem(META_STORE, { key: 'catalogVersion', value: CATALOG_VERSION });
 
     onProgress?.('Done', 1, 1);
     return motors;

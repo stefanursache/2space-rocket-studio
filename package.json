@@ -6,6 +6,9 @@
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build",
+        "validate:physics": "tsx scripts/validate-physics.ts",
+        "validate:openrocket": "tsx scripts/validate-openrocket-flight.ts",
+        "compare:openrocket": "tsx scripts/compare-openrocket.ts",
         "preview": "vite preview"
     },
     "dependencies": {
@@ -26,11 +29,14 @@
         "zustand": "^4.4.7"
     },
     "devDependencies": {
+        "@types/jsdom": "^30.0.0",
         "@types/react": "^18.2.43",
         "@types/react-dom": "^18.2.17",
         "@types/three": "^0.160.0",
         "@types/uuid": "^9.0.7",
         "@vitejs/plugin-react": "^4.2.1",
+        "jsdom": "^29.1.1",
+        "tsx": "^4.19.2",
         "typescript": "^5.2.2",
         "vite": "^5.0.8"
     }

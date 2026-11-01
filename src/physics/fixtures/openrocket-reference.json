@@ -1,0 +1,39 @@
+{
+  "atmosphere": {
+    "altitude": 0,
+    "temperature": 288.15,
+    "pressure": 101325,
+    "density": 1.2249994633486807
+  },
+  "gravity": [
+    {
+      "altitude": 0,
+      "latitude": 0,
+      "value": 9.7803267714
+    },
+    {
+      "altitude": 0,
+      "latitude": 90,
+      "value": 9.83218636854687
+    }
+  ],
+  "wind": {
+    "seed": 12345,
+    "average": 10,
+    "standardDeviation": 0,
+    "direction": 90,
+    "time": 0,
+    "x": -10,
+    "z": 0
+  },
+  "naca1307": [
+    {
+      "radiusSemispanRatio": 0,
+      "finLiftFactor": 1
+    },
+    {
+      "radiusSemispanRatio": 1,
+      "finLiftFactor": 2
+    }
+  ]
+}

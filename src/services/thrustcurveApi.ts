@@ -112,7 +112,6 @@ export async function fetchAllMotors(
         try {
             const resp = await searchMotors({
                 impulseClass: classes[i],
-                availability: 'available',
                 maxResults: 2000,
             });
             if (resp.results) all.push(...resp.results);

@@ -184,6 +184,24 @@ export const FlightAnimation: React.FC<FlightAnimationProps> = ({ result }) => {
 
     return (
         <div className="flight-animation">
+            <div className="flight-brief">
+                <div className="flight-brief-title">
+                    <span className="flight-live-dot" />
+                    <div>
+                        <strong>Flight replay</strong>
+                        <span>Simulation telemetry · {data.length.toLocaleString()} samples</span>
+                    </div>
+                </div>
+                <div className="flight-brief-metrics">
+                    <div><small>APOGEE</small><b>{toDisplay(result.maxAltitude, 'm_alt', us).toFixed(0)}{unitLabel('m_alt', us)}</b></div>
+                    <div><small>MAX VELOCITY</small><b>{toDisplay(result.maxVelocity, 'mps', us).toFixed(0)}{unitLabel('mps', us)}</b></div>
+                    <div><small>MAX MACH</small><b>{result.maxMach.toFixed(2)}</b></div>
+                    <div><small>FLIGHT TIME</small><b>{result.flightTime.toFixed(1)} s</b></div>
+                </div>
+                <div className={"flight-brief-phase fa-phase-" + (currentEvent?.type || 'launch')}>
+                    {currentEvent?.type === 'groundhit' ? 'LANDED' : currentEvent?.type === 'deployment' ? 'RECOVERY' : isBurning ? 'POWERED FLIGHT' : 'COAST / DESCENT'}
+                </div>
+            </div>
             <div className="fa-canvas-wrap" ref={containerRef}>
                 <canvas ref={canvasRef} />
             </div>

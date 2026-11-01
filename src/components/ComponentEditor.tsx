@@ -1,34 +1,43 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
-import { RocketComponent, NoseCone, BodyTube, Transition, TrapezoidFinSet, EllipticalFinSet, FreeformFinSet, InnerTube, Parachute, Streamer, LaunchLug, MassObject, ShockCord, EngineBlock, CenteringRing, Bulkhead, Airbrakes } from '../types/rocket';
+import { RocketComponent, NoseCone, BodyTube, Transition, TrapezoidFinSet, EllipticalFinSet, FreeformFinSet, InnerTube, Parachute, Streamer, LaunchLug, MassObject, ShockCord, EngineBlock, CenteringRing, Bulkhead, Airbrakes, Material } from '../types/rocket';
 import { BULK_MATERIALS, SURFACE_MATERIALS, LINE_MATERIALS } from '../models/materials';
 import { FreeformFinEditor } from './FreeformFinEditor';
 import { toDisplay, toSI, unitLabel, UnitSystem } from '../utils/units';
+import { downloadNoseConeStep } from '../services/stepExporter';
 
 /** Find parent container length, absolute start position from nose tip, and parent radius */
 function getParentInfo(rocket: any, childId: string): { parentLength: number; parentStart: number; parentRadius: number } {
-    let xPos = 0;
-    for (const stage of rocket.stages) {
-        xPos = 0;
-        for (const comp of stage.components) {
-            const cLen = comp.type === 'nosecone' ? comp.length
-                : comp.type === 'bodytube' ? comp.length
-                    : comp.type === 'transition' ? comp.length : 0;
-            if (comp.type === 'bodytube' && comp.children) {
-                for (const child of comp.children) {
-                    if (child.id === childId) return { parentLength: comp.length, parentStart: xPos, parentRadius: comp.outerRadius || 0 };
-                    if (child.type === 'innertube' && child.children) {
-                        for (const gc of child.children) {
-                            if (gc.id === childId) {
-                                const itPos = typeof child.position === 'number' ? child.position : 0;
-                                return { parentLength: child.length, parentStart: xPos + itPos, parentRadius: child.outerRadius || 0 };
-                            }
-                        }
+    const visit = (components: RocketComponent[], start: number): { parentLength: number; parentStart: number; parentRadius: number } | null => {
+        let xPos = start;
+        for (const comp of components) {
+            const compLength = 'length' in comp && typeof comp.length === 'number' ? comp.length : 0;
+            const children = 'children' in comp ? comp.children : undefined;
+            if (children) {
+                const nestedStart = xPos;
+                for (const child of children) {
+                    if (child.id === childId) {
+                        return {
+                            parentLength: compLength,
+                            parentStart: nestedStart,
+                            parentRadius: 'outerRadius' in comp ? comp.outerRadius || 0 : 'baseRadius' in comp ? comp.baseRadius || 0 : 0,
+                        };
                     }
+                    const childPosition = 'position' in child && typeof child.position === 'number' ? child.position : 0;
+                    const nested = 'children' in child && child.children
+                        ? visit(child.children, nestedStart + childPosition)
+                        : null;
+                    if (nested) return nested;
                 }
             }
-            xPos += cLen;
+            xPos += compLength;
         }
+        return null;
+    };
+
+    for (const stage of rocket.stages) {
+        const result = visit(stage.components, 0);
+        if (result) return result;
     }
     return { parentLength: 0, parentStart: 0, parentRadius: 0 };
 }
@@ -46,24 +55,22 @@ export const ComponentEditor: React.FC = () => {
         );
     }
 
-    // Find the component
-    let component: RocketComponent | null = null;
-    for (const stage of rocket.stages) {
-        for (const comp of stage.components) {
-            if (comp.id === selectedComponentId) { component = comp; break; }
-            if (comp.type === 'bodytube' && comp.children) {
-                for (const child of comp.children) {
-                    if (child.id === selectedComponentId) { component = child; break; }
-                    if (child.type === 'innertube' && child.children) {
-                        for (const gc of child.children) {
-                            if (gc.id === selectedComponentId) { component = gc; break; }
-                        }
-                    }
-                }
+    // Imported OpenRocket components can be nested under nose cones, body
+    // tubes, and inner tubes. Search the complete component tree.
+    const findComponent = (components: RocketComponent[]): RocketComponent | null => {
+        for (const candidate of components) {
+            if (candidate.id === selectedComponentId) return candidate;
+            if ('children' in candidate && candidate.children) {
+                const match = findComponent(candidate.children);
+                if (match) return match;
             }
         }
-        if (component) break;
-    }
+        return null;
+    };
+    const component = rocket.stages.reduce<RocketComponent | null>(
+        (found, stage) => found ?? findComponent(stage.components),
+        null,
+    );
 
     if (!component) {
         return <div className="component-editor"><p>Component not found</p></div>;
@@ -314,11 +321,23 @@ const NumField: React.FC<{
 // Material editor
 const MaterialEditor: React.FC<{ component: RocketComponent; update: (u: any) => void }> = ({ component, update }) => {
     const us = useStore(s => s.unitSystem);
+    const customMaterials = useStore(s => s.customMaterials);
+    const addCustomMaterial = useStore(s => s.addCustomMaterial);
     const materials = component.material.type === 'surface'
         ? SURFACE_MATERIALS
         : component.material.type === 'line'
             ? LINE_MATERIALS
             : BULK_MATERIALS;
+    const matchingCustomMaterials = customMaterials.filter(material => material.type === component.material.type);
+    const allMaterials = [...materials, ...matchingCustomMaterials];
+    const [showNewMaterial, setShowNewMaterial] = useState(false);
+    const [newMaterial, setNewMaterial] = useState({
+        name: '',
+        density: component.material.type === 'bulk' ? 1000 : 1,
+        elasticModulus: 10,
+        shearModulus: 1,
+        poissonRatio: 0.3,
+    });
 
     const densityUnit = component.material.type === 'bulk' ? 'kg/m3'
         : component.material.type === 'surface' ? 'kg/m2' : 'kg/m';
@@ -336,7 +355,7 @@ const MaterialEditor: React.FC<{ component: RocketComponent; update: (u: any) =>
                         if (mat) update({ material: mat });
                     }}
                 >
-                    {materials.map(m => {
+                    {allMaterials.map(m => {
                         const dVal = toDisplay(m.density, densityUnit, us);
                         return (
                             <option key={m.name} value={m.name}>
@@ -346,6 +365,52 @@ const MaterialEditor: React.FC<{ component: RocketComponent; update: (u: any) =>
                     })}
                 </select>
             </div>
+            <button className="editor-action-button" type="button" onClick={() => setShowNewMaterial(value => !value)}>
+                {showNewMaterial ? 'Cancel new material' : 'Add custom material'}
+            </button>
+            {showNewMaterial && (
+                <div className="material-create-form">
+                    <div className="field">
+                        <label>Name</label>
+                        <input value={newMaterial.name} onChange={e => setNewMaterial({ ...newMaterial, name: e.target.value })} placeholder="e.g. Carbon laminate" />
+                    </div>
+                    <div className="field">
+                        <label>Density ({densityLabel})</label>
+                        <input type="number" min="0" value={newMaterial.density} onChange={e => setNewMaterial({ ...newMaterial, density: Number(e.target.value) })} />
+                    </div>
+                    {component.material.type === 'bulk' && (
+                        <>
+                            <div className="field">
+                                <label>Elastic modulus (GPa)</label>
+                                <input type="number" min="0" step="0.01" value={newMaterial.elasticModulus} onChange={e => setNewMaterial({ ...newMaterial, elasticModulus: Number(e.target.value) })} />
+                            </div>
+                            <div className="field">
+                                <label>Shear modulus (GPa)</label>
+                                <input type="number" min="0" step="0.01" value={newMaterial.shearModulus} onChange={e => setNewMaterial({ ...newMaterial, shearModulus: Number(e.target.value) })} />
+                            </div>
+                            <div className="field">
+                                <label>Poisson ratio</label>
+                                <input type="number" min="0" max="0.5" step="0.01" value={newMaterial.poissonRatio} onChange={e => setNewMaterial({ ...newMaterial, poissonRatio: Number(e.target.value) })} />
+                            </div>
+                        </>
+                    )}
+                    <button className="editor-action-button" type="button" onClick={() => {
+                        const name = newMaterial.name.trim();
+                        if (!name || newMaterial.density <= 0) return;
+                        const material: Material = {
+                            name,
+                            density: newMaterial.density,
+                            type: component.material.type,
+                            elasticModulus: component.material.type === 'bulk' ? newMaterial.elasticModulus * 1e9 : undefined,
+                            shearModulus: component.material.type === 'bulk' ? newMaterial.shearModulus * 1e9 : undefined,
+                            poissonRatio: component.material.type === 'bulk' ? newMaterial.poissonRatio : undefined,
+                        };
+                        addCustomMaterial(material);
+                        update({ material });
+                        setShowNewMaterial(false);
+                    }}>Save material</button>
+                </div>
+            )}
             <div className="field">
                 <label>Surface Finish</label>
                 <select
@@ -360,6 +425,13 @@ const MaterialEditor: React.FC<{ component: RocketComponent; update: (u: any) =>
                     <option value="polished">Polished</option>
                 </select>
             </div>
+            {component.material.type === 'bulk' && (
+                <div className="material-properties">
+                    <span>Elastic modulus: {component.material.elasticModulus ? `${(component.material.elasticModulus / 1e9).toFixed(2)} GPa` : 'not specified'}</span>
+                    <span>Shear modulus: {component.material.shearModulus ? `${(component.material.shearModulus / 1e9).toFixed(2)} GPa` : 'estimated fallback'}</span>
+                    <span>Poisson ratio: {component.material.poissonRatio?.toFixed(2) ?? 'not specified'}</span>
+                </div>
+            )}
         </div>
     );
 };
@@ -387,6 +459,9 @@ const NoseConeEditor: React.FC<{ comp: NoseCone; update: (u: any) => void }> = (
         <NumField label="Thickness" value={comp.thickness * 1000} onChange={v => update({ thickness: v / 1000 })} />
         <NumField label="Shoulder Length" value={comp.shoulderLength * 1000} onChange={v => update({ shoulderLength: v / 1000 })} />
         <NumField label="Shoulder Diameter" value={comp.shoulderRadius * 2000} onChange={v => update({ shoulderRadius: v / 2000 })} />
+        <button className="editor-action-button" onClick={() => downloadNoseConeStep(comp)}>
+            Export nose cone as STEP
+        </button>
     </div>
 );
 

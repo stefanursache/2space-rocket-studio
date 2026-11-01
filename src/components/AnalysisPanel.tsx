@@ -3,16 +3,52 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { useStore } from '../store/useStore';
 import { calculateStability, calculateDrag, getComponentPositions, getRocketLength, getMaxRadius, getReferenceArea, findAirbrakes } from '../physics/aerodynamics';
 import { getAtmosphere, getDynamicPressure } from '../physics/atmosphere';
+import { calculateFinFlutter, FinComponent } from '../physics/finFlutter';
+import { RocketComponent } from '../types/rocket';
 import { fmtU, fmt, unitLabel, toDisplay } from '../utils/units';
 
 const COLORS = ['#2196F3', '#4CAF50', '#FF9800', '#f44336', '#9C27B0', '#00BCD4', '#FF5722', '#795548', '#607D8B', '#E91E63'];
 
 export const AnalysisPanel: React.FC = () => {
-    const { rocket, stability, selectedMotor, unitSystem: us } = useStore();
+    const { rocket, stability, selectedMotor, unitSystem: us, simulationResults } = useStore();
     const motorPosition = useStore(s => s.motorPosition);
     const [compareExtended, setCompareExtended] = useState(false);
     const [positionReference, setPositionReference] = useState<'top' | 'bottom'>('top');
     const [percentMode, setPercentMode] = useState<'length' | 'target'>('length');
+    const [tipToTip, setTipToTip] = useState(false);
+
+    const finSets = useMemo(() => {
+        const result: FinComponent[] = [];
+        const visit = (component: RocketComponent) => {
+            if (component.type === 'trapezoidfinset' || component.type === 'ellipticalfinset' || component.type === 'freeformfinset') {
+                result.push(component);
+            }
+            if ('children' in component) component.children?.forEach(visit);
+        };
+        rocket.stages.forEach(stage => stage.components.forEach(visit));
+        return result;
+    }, [rocket]);
+
+    const flutterResults = useMemo(() => {
+        const latest = simulationResults[simulationResults.length - 1];
+        const maxVelocity = latest?.maxVelocity ?? 0;
+        const maxVelocityPoint = latest?.data.length
+            ? latest.data.reduce((best, point) =>
+                Math.abs(point.velocity) > Math.abs(best.velocity) ? point : best,
+                latest.data[0]
+            )
+            : undefined;
+        return finSets.map(fin => ({
+            fin,
+            result: calculateFinFlutter({
+                fin,
+                material: fin.material,
+                maxVelocity,
+                maxVelocityAltitude: maxVelocityPoint?.altitude ?? 0,
+                tipToTip,
+            }),
+        }));
+    }, [finSets, simulationResults, tipToTip]);
 
     const analysis = useMemo(() => {
         const positions = getComponentPositions(rocket);
@@ -129,6 +165,76 @@ export const AnalysisPanel: React.FC = () => {
     return (
         <div className="analysis-panel">
             <h2>Rocket Analysis</h2>
+
+            <div className="analysis-section">
+                <div className="flutter-section-header">
+                    <div>
+                        <h3>Fin Flutter Analysis</h3>
+                        <p className="editor-hint">
+                            Bennett boundary model using fin geometry, atmospheric pressure, and material stiffness.
+                        </p>
+                    </div>
+                    <span className="flutter-model-badge">BENNETT MODEL</span>
+                </div>
+                <div className="flutter-controls">
+                    <label className="flutter-toggle">
+                        <input type="checkbox" checked={tipToTip} onChange={e => setTipToTip(e.target.checked)} />
+                        <span className="flutter-toggle-box" />
+                        <span>Tip-to-tip reinforcement</span>
+                        <small>2× shear modulus</small>
+                    </label>
+                    <span className="flutter-input-note">
+                        {simulationResults.length > 0 ? 'Compared with latest simulation' : 'Run a simulation to compare velocity'}
+                    </span>
+                </div>
+                {flutterResults.length === 0 && <p className="analysis-empty">Add a fin set to calculate flutter velocity.</p>}
+                {flutterResults.map(({ fin, result }) => (
+                    <div className={`analysis-card${result.marginPercent !== null && result.marginPercent <= 0 ? ' flutter-danger' : ''}`} key={fin.id}>
+                        <div className="flutter-card-header">
+                            <div>
+                                <div className="analysis-card-title">{fin.name}</div>
+                                <div className="flutter-material"><span className="material-dot" />{fin.material.name}</div>
+                            </div>
+                            <span className={`flutter-status ${result.marginPercent === null ? 'pending' : result.marginPercent <= 0 ? 'danger' : 'safe'}`}>
+                                {result.marginPercent === null ? 'AWAITING SIMULATION' : result.marginPercent <= 0 ? 'FLUTTER RISK' : 'WITHIN LIMIT'}
+                            </span>
+                        </div>
+                        {result.marginPercent !== null && result.marginPercent <= 0 && (
+                            <p className="analysis-warning flutter-alert">⚠ FIN FLUTTER RISK: simulated maximum velocity reaches the calculated flutter velocity.</p>
+                        )}
+                        <div className="analysis-grid">
+                            <div className="analysis-item">
+                                <span className="a-label">Flutter velocity</span>
+                                <span className="a-value">{Number.isFinite(result.flutterVelocity) ? `${result.flutterVelocity.toFixed(1)} m/s` : 'Not defined'}</span>
+                            </div>
+                            <div className="analysis-item">
+                                <span className="a-label">Velocity margin</span>
+                                <span className="a-value">{result.marginPercent === null ? 'Run simulation' : `${result.marginPercent.toFixed(1)}%`}</span>
+                            </div>
+                            <div className="analysis-item">
+                                <span className="a-label">Shear modulus</span>
+                                <span className="a-value">{(result.shearModulus / 1e9).toFixed(2)} GPa</span>
+                            </div>
+                            <div className="analysis-item">
+                                <span className="a-label">Fin area / AR</span>
+                                <span className="a-value">{(result.finArea * 1e6).toFixed(1)} mm² / {result.aspectRatio.toFixed(2)}</span>
+                            </div>
+                        </div>
+                        {result.marginPercent !== null && (
+                            <div className="flutter-margin">
+                                <div className="flutter-margin-label">
+                                    <span>Safety margin</span>
+                                    <strong>{result.marginPercent.toFixed(1)}%</strong>
+                                </div>
+                                <div className="flutter-margin-track">
+                                    <i style={{ width: `${Math.min(100, Math.max(0, result.marginPercent))}%` }} />
+                                </div>
+                            </div>
+                        )}
+                        {result.warning && <p className="analysis-warning">{result.warning}</p>}
+                    </div>
+                ))}
+            </div>
 
             {/* Geometry Summary */}
             <div className="analysis-section">

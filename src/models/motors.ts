@@ -165,6 +165,51 @@ export const MOTOR_DATABASE: Motor[] = [
         totalImpulse: 1417.8, impulseClass: 'K',
         thrustCurve: [[0, 0], [0.02, 100.0], [0.06, 440.0], [0.1, 775.0], [0.2, 720.0], [0.45, 600.0], [0.8, 530.0], [1.2, 480.0], [1.6, 420.0], [2.0, 340.0], [2.3, 230.0], [2.5, 130.0], [2.7, 50.0], [2.78, 0]]
     },
+    // === High-power fallback motors ===
+    // These keep the finder usable when the live catalog is unavailable or
+    // an older IndexedDB cache contains only low-power motors.
+    {
+        id: uuid(), manufacturer: 'AeroTech', designation: 'L1000', commonName: 'L1000',
+        diameter: 54, length: 728, delays: 'P', propellantMass: 1.30,
+        totalMass: 2.33, averageThrust: 1000, maxThrust: 1738, burnTime: 2.60,
+        totalImpulse: 2592, impulseClass: 'L',
+        thrustCurve: [[0, 0], [0.05, 400], [0.12, 1250], [0.25, 1738], [0.5, 1400], [1, 1100], [1.5, 950], [2, 750], [2.4, 400], [2.6, 0]]
+    },
+    {
+        id: uuid(), manufacturer: 'Cesaroni', designation: 'M2500', commonName: 'M2500',
+        diameter: 75, length: 950, delays: 'P', propellantMass: 3.40,
+        totalMass: 5.60, averageThrust: 2500, maxThrust: 3900, burnTime: 4.20,
+        totalImpulse: 10500, impulseClass: 'M',
+        thrustCurve: [[0, 0], [0.08, 900], [0.2, 2800], [0.4, 3900], [0.8, 3200], [1.5, 2600], [2.5, 2200], [3.5, 1500], [4, 600], [4.2, 0]]
+    },
+    {
+        id: uuid(), manufacturer: 'AeroTech', designation: 'N5800', commonName: 'N5800',
+        diameter: 98, length: 1100, delays: 'P', propellantMass: 7.20,
+        totalMass: 11.50, averageThrust: 5800, maxThrust: 8200, burnTime: 5.10,
+        totalImpulse: 29580, impulseClass: 'N',
+        thrustCurve: [[0, 0], [0.1, 1800], [0.3, 6500], [0.6, 8200], [1.2, 7000], [2.2, 6000], [3.4, 5000], [4.4, 3200], [4.9, 1200], [5.1, 0]]
+    },
+    {
+        id: uuid(), manufacturer: 'AeroTech', designation: 'O5500X-PS', commonName: 'O5500',
+        diameter: 98, length: 1507, delays: 'P', propellantMass: 9.78,
+        totalMass: 16.78, averageThrust: 5515, maxThrust: 7552, burnTime: 4.03,
+        totalImpulse: 21384, impulseClass: 'O',
+        thrustCurve: [[0, 0], [0.1, 2200], [0.3, 6500], [0.55, 7552], [1, 6800], [1.8, 5600], [2.6, 5000], [3.3, 3900], [3.8, 1800], [4.03, 0]]
+    },
+    {
+        id: uuid(), manufacturer: 'Cesaroni', designation: '21062O3400-P', commonName: 'O3400',
+        diameter: 98, length: 1239, delays: 'P', propellantMass: 10.93,
+        totalMass: 16.84, averageThrust: 3417, maxThrust: 4750, burnTime: 6.16,
+        totalImpulse: 21062, impulseClass: 'O',
+        thrustCurve: [[0, 0], [0.15, 1100], [0.35, 3600], [0.6, 4750], [1, 4300], [2, 3700], [3, 3400], [4, 3200], [5, 2500], [5.7, 1200], [6.16, 0]]
+    },
+    {
+        id: uuid(), manufacturer: 'Cesaroni', designation: '29920O3700-P', commonName: 'O3700',
+        diameter: 161, length: 1422, delays: 'P', propellantMass: 15.10,
+        totalMass: 23.00, averageThrust: 3700, maxThrust: 5200, burnTime: 8.09,
+        totalImpulse: 29920, impulseClass: 'O',
+        thrustCurve: [[0, 0], [0.15, 1200], [0.4, 4200], [0.7, 5200], [1.5, 4700], [3, 4000], [5, 3500], [6.8, 2600], [7.6, 1200], [8.09, 0]]
+    },
 ];
 
 export function getMotorById(id: string): Motor | undefined {

@@ -7,13 +7,14 @@
 import { v4 as uuid } from 'uuid';
 import {
     Rocket, NoseCone, BodyTube, Transition, TrapezoidFinSet,
-    Parachute, Streamer, ShockCord, MassObject, InnerTube,
+    Parachute, Streamer, ShockCord, MassObject, InnerTube, FreeformFinSet,
     EngineBlock, CenteringRing, Bulkhead, LaunchLug, TubeCoupler,
     Motor, SimulationOptions, RocketComponent, Stage,
     NoseConeShape, FinCrossSection, SurfaceFinish, Material,
 } from '../types/rocket';
 import {
-    createNoseCone, createBodyTube, createTransition, createTrapezoidFinSet,
+    createNoseCone, createBodyTube, createTransition, createTrapezoidFinSet, createEllipticalFinSet,
+    createFreeformFinSet,
     createParachute, createStreamer, createShockCord, createMassObject,
     createInnerTube, createEngineBlock, createCenteringRing, createBulkhead,
     createLaunchLug, createTubeCoupler, createStage,
@@ -101,7 +102,7 @@ function getChildLength(comp: RocketComponent): number {
         case 'tubecoupler': return comp.length;
         case 'trapezoidfinset': return comp.rootChord;
         case 'ellipticalfinset': return comp.rootChord;
-        case 'freeformfinset': return 0;
+        case 'freeformfinset': return comp.points.reduce((max, [x]) => Math.max(max, x), 0);
         case 'massobject': return comp.length;
         case 'parachute': return 0;
         case 'streamer': return 0;
@@ -259,6 +260,42 @@ function parseTrapezoidFinSet(el: Element): TrapezoidFinSet {
     return fs;
 }
 
+function parseFreeformFinSet(el: Element): FreeformFinSet {
+    const fs = createFreeformFinSet();
+    fs.name = getText(el, 'name') || fs.name;
+    fs.finCount = getFloat(el, 'fincount', getFloat(el, 'instancecount', fs.finCount));
+    fs.thickness = getFloat(el, 'thickness', fs.thickness);
+    fs.crossSection = mapCrossSection(getText(el, 'crosssection'));
+    fs.cantAngle = getFloat(el, 'cant', 0);
+    fs.finish = mapFinish(getText(el, 'finish'));
+    const points = Array.from(el.querySelectorAll(':scope > finpoints > point'))
+        .map(point => [getFloat(point, 'x', Number(point.getAttribute('x') || 0)), getFloat(point, 'y', Number(point.getAttribute('y') || 0))] as [number, number]);
+    if (points.length >= 3) fs.points = points;
+    const overMass = getFloat(el, 'overridemass', -1);
+    if (overMass > 0) {
+        fs.massOverridden = true;
+        fs.mass = overMass;
+    }
+    const mat = parseMaterial(el);
+    if (mat) fs.material = mat;
+    return fs;
+}
+
+function parseEllipticalFinSet(el: Element): import('../types/rocket').EllipticalFinSet {
+    const fs = createEllipticalFinSet();
+    fs.name = getText(el, 'name') || fs.name;
+    fs.finCount = getFloat(el, 'fincount', getFloat(el, 'instancecount', fs.finCount));
+    fs.rootChord = getFloat(el, 'rootchord', fs.rootChord);
+    fs.height = getFloat(el, 'height', fs.height);
+    fs.thickness = getFloat(el, 'thickness', fs.thickness);
+    fs.crossSection = mapCrossSection(getText(el, 'crosssection'));
+    fs.cantAngle = getFloat(el, 'cant', 0);
+    fs.finish = mapFinish(getText(el, 'finish'));
+    const mat = parseMaterial(el);
+    if (mat) fs.material = mat;
+    return fs;
+}
+
 function parseParachute(el: Element): Parachute {
     const ch = createParachute();
     ch.name = getText(el, 'name') || ch.name;
@@ -413,8 +450,8 @@ function parseSubcomponents(parentEl: Element, parentLength?: number): RocketCom
             case 'transition': comp = parseTransition(child); break;
             case 'trapezoidfinset': comp = parseTrapezoidFinSet(child); break;
             // Elliptical fins → import as trapezoidal approximation
-            case 'ellipticalfinset': comp = parseTrapezoidFinSet(child); break;
-            case 'freeformfinset': comp = parseTrapezoidFinSet(child); break;
+            case 'ellipticalfinset': comp = parseEllipticalFinSet(child); break;
+            case 'freeformfinset': comp = parseFreeformFinSet(child); break;
             case 'parachute': comp = parseParachute(child); break;
             case 'streamer': comp = parseStreamer(child); break;
             case 'shockcord': comp = parseShockCord(child); break;
@@ -494,6 +531,7 @@ function extractSimulationOptions(doc: Document): Partial<SimulationOptions> | n
         launchRodAngle: getFloat(condEl, 'launchrodangle', 5),
         launchRodDirection: getFloat(condEl, 'launchroddirection', 0),
         windSpeedAvg: getFloat(condEl, 'windaverage', 2),
+        windSpeedStdDev: getFloat(condEl, 'windturbulence', 0),
         launchAltitude: getFloat(condEl, 'launchaltitude', 0),
         launchLatitude: getFloat(condEl, 'launchlatitude', 45),
         launchLongitude: getFloat(condEl, 'launchlongitude', -90),

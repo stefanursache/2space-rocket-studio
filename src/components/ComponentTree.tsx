@@ -62,7 +62,7 @@ function formatType(type: string): string {
 
 /** Can this component type hold children? */
 function isContainer(type: string): boolean {
-    return type === 'bodytube' || type === 'innertube';
+    return type === 'nosecone' || type === 'bodytube' || type === 'innertube';
 }
 
 /** Top-level body types that form the rocket structure (not re-parentable) */

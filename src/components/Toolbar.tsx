@@ -67,6 +67,10 @@ export const Toolbar: React.FC = () => {
                                 <span className="btn-icon">✦</span>
                                 <span>Example</span>
                             </button>
+                            <button className="toolbar-menu-item" onClick={() => { loadRocketFromFile(); setOpenMenu(null); }}>
+                                <span className="btn-icon">📂</span>
+                                <span>Open OpenRocket (.ork)</span>
+                            </button>
                         </div>
                     )}
                 </div>
@@ -91,7 +95,7 @@ export const Toolbar: React.FC = () => {
                             </button>
                             <button className="toolbar-menu-item" onClick={() => { loadRocketFromFile(); setOpenMenu(null); }}>
                                 <span className="btn-icon">📂</span>
-                                <span>Open</span>
+                                <span>Open project file</span>
                             </button>
                             <button className="toolbar-menu-item" onClick={() => { resetPanelLayout(); setOpenMenu(null); }}>
                                 <span className="btn-icon">↺</span>

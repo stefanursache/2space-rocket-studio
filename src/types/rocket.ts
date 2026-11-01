@@ -9,6 +9,9 @@ export type Material = {
     name: string;
     density: number; // kg/m³
     type: 'bulk' | 'surface' | 'line';
+    elasticModulus?: number; // Pa
+    shearModulus?: number; // Pa
+    poissonRatio?: number;
 };
 export type SurfaceFinish = 'unfinished' | 'rough' | 'unfinished_paint' | 'regular_paint' | 'smooth_paint' | 'polished';
 
@@ -30,8 +33,10 @@ export interface BaseComponent {
     name: string;
     mass?: number; // override mass in kg
     massOverridden: boolean;
+    subcomponentsMassOverridden?: boolean;
     cgOverridden: boolean;
     cgOverride?: number; // override CG position from component front
+    subcomponentsCGOverridden?: boolean;
     cdOverridden: boolean;
     cdOverride?: number;
     material: Material;
@@ -280,6 +285,8 @@ export interface Motor {
     impulseClass: string; // A, B, C, etc.
     tcMotorId?: string; // ThrustCurve.org motor ID (present for API-sourced motors)
     hasThrustCurve?: boolean; // whether thrust curve data has been downloaded
+    availability?: 'regular' | 'occasional' | 'OOP' | 'unknown';
+    infoUrl?: string;
 }
 
 export interface MotorConfig {
@@ -353,7 +360,7 @@ export interface SimulationResult {
 export interface SimulationEvent {
     time: number;
     altitude: number;
-    type: 'launch' | 'launchrod' | 'burnout' | 'apogee' | 'deployment' | 'airbrakes_deploy' | 'groundhit' | 'separation';
+    type: 'launch' | 'launchrod' | 'burnout' | 'apogee' | 'deployment' | 'airbrakes_deploy' | 'groundhit' | 'separation' | 'ignition' | 'ejection';
     description: string;
 }
 

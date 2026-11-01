@@ -8,9 +8,10 @@ import { createDefaultRocket, createExampleRocket } from '../models/components';
 import { calculateStability } from '../physics/aerodynamics';
 import { runSimulation, getDefaultSimulationOptions } from '../physics/simulation';
 import { MOTOR_DATABASE } from '../models/motors';
+import { Material } from '../types/rocket';
 import {
     getCachedMotors, syncMotors as syncMotorsFromAPI,
-    needsSync, getLastSyncDate, fetchAndCacheThrustCurve,
+    needsSync, needsCatalogSync, getLastSyncDate, fetchAndCacheThrustCurve,
 } from '../services/motorCache';
 import { importOrkFile, matchMotor, OrkImportResult } from '../services/orkImporter';
 
@@ -67,6 +68,16 @@ function computeMotorPosition(rocket: Rocket, motor: Motor | null): number {
     return x - motorLen;
 }
 
+function isLevel3Motor(motor: Motor): boolean {
+    const impulseClass = motor.impulseClass.trim().toUpperCase().match(/^[A-O]/)?.[0] || '';
+    return 'LMNO'.includes(impulseClass);
+}
+
+function mergeMotors(primary: Motor[], fallback: Motor[]): Motor[] {
+    const ids = new Set(primary.map(motor => motor.id));
+    return [...primary, ...fallback.filter(motor => !ids.has(motor.id))];
+}
+
 interface AppState {
     // Rocket design
     rocket: Rocket;
@@ -93,6 +104,7 @@ interface AppState {
 
     // Motor database (dynamic)
     motors: Motor[];
+    customMaterials: Material[];
     motorSyncStatus: 'idle' | 'syncing' | 'done' | 'error';
     motorSyncProgress: string;
     lastMotorSync: string | null; // ISO date
@@ -130,12 +142,25 @@ interface AppState {
     setShowComponentEditor: (show: boolean) => void;
     setShow3DView: (show: boolean) => void;
     setUnitSystem: (system: UnitSystem) => void;
+    addCustomMaterial: (material: Material) => void;
+    removeCustomMaterial: (name: string) => void;
     loadExampleRocket: () => void;
     newRocket: () => void;
     addStage: () => void;
     removeStage: (index: number) => void;
     saveRocketToFile: () => void;
     loadRocketFromFile: () => void;
+}
+
+function loadCustomMaterials(): Material[] {
+    if (typeof window === 'undefined') return [];
+    try {
+        const parsed = JSON.parse(localStorage.getItem('customMaterials') || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        console.warn('Unable to load custom materials:', error);
+        return [];
+    }
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -153,6 +178,7 @@ export const useStore = create<AppState>((set, get) => ({
     isSimulating: false,
     stability: null,
     motors: MOTOR_DATABASE,
+    customMaterials: loadCustomMaterials(),
     motorSyncStatus: 'idle',
     motorSyncProgress: '',
     lastMotorSync: null,
@@ -171,13 +197,17 @@ export const useStore = create<AppState>((set, get) => ({
         try {
             const cached = await getCachedMotors();
             if (cached.length > 0) {
-                set({ motors: cached });
+                set({ motors: mergeMotors(cached, MOTOR_DATABASE) });
             }
             const last = await getLastSyncDate();
             if (last) set({ lastMotorSync: last.toISOString() });
 
             // Auto-sync if needed
-            const shouldSync = await needsSync();
+            // Older caches may predate high-power catalog support. Refresh them
+            // once so L3-capable L/O motors are available without requiring
+            // users to discover the manual sync action.
+            const missingLevel3Motors = cached.length > 0 && !cached.some(isLevel3Motor);
+            const shouldSync = (await needsSync()) || (await needsCatalogSync()) || missingLevel3Motors;
             if (shouldSync) {
                 get().syncMotorsFromAPI();
             }
@@ -197,7 +227,7 @@ export const useStore = create<AppState>((set, get) => ({
                 set({ motorSyncProgress: `${phase} (${current}/${total})` });
             });
             set({
-                motors: motors.length > 0 ? motors : get().motors,
+                motors: mergeMotors(motors, MOTOR_DATABASE),
                 motorSyncStatus: 'done',
                 motorSyncProgress: `${motors.length} motors synced`,
                 lastMotorSync: new Date().toISOString(),
@@ -401,14 +431,7 @@ export const useStore = create<AppState>((set, get) => ({
                     return true;
                 }
                 const comp = components[i];
-                if (comp.type === 'bodytube' && comp.children) {
-                    if (updateInList(comp.children)) return true;
-                    for (const child of comp.children) {
-                        if (child.type === 'innertube' && child.children) {
-                            if (updateInList(child.children)) return true;
-                        }
-                    }
-                }
+                if ('children' in comp && comp.children && updateInList(comp.children)) return true;
             }
             return false;
         };
@@ -548,6 +571,16 @@ export const useStore = create<AppState>((set, get) => ({
         localStorage.setItem('unitSystem', system);
         set({ unitSystem: system });
     },
+    addCustomMaterial: (material) => set(state => {
+        const customMaterials = [...state.customMaterials.filter(existing => existing.name !== material.name), material];
+        localStorage.setItem('customMaterials', JSON.stringify(customMaterials));
+        return { customMaterials };
+    }),
+    removeCustomMaterial: (name) => set(state => {
+        const customMaterials = state.customMaterials.filter(material => material.name !== name);
+        localStorage.setItem('customMaterials', JSON.stringify(customMaterials));
+        return { customMaterials };
+    }),
 
     loadExampleRocket: () => {
         const rocket = createExampleRocket();
